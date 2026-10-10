@@ -336,7 +336,7 @@ app.get("/ws", { websocket: true }, (socket, req) => {
       }
       if (dados.tipo !== "mensagem") return;
       try {
-        const msg = await registrarMensagemDoAluno(sessao.contactId, { texto: dados.texto, arquivoToken: dados.arquivo }, req.log);
+        const msg = await registrarMensagemDoAluno(sessao.contactId, { texto: dados.texto, arquivoToken: dados.arquivo, clienteId: dados.clienteId }, req.log);
         socket.send(JSON.stringify({ tipo: "ack", clienteId: dados.clienteId, mensagem: serializarMensagem(msg) }));
       } catch (err) {
         req.log.warn({ err: err.message }, "mensagem do aluno recusada");

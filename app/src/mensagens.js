@@ -34,8 +34,10 @@ async function enviarMensagemAoDataCrazy(mensagemId) {
 // Job de reenvio, para quando o envio direto falha.
 export const jobEnviarMensagem = ({ mensagemId }) => enviarMensagemAoDataCrazy(mensagemId);
 
-export async function registrarMensagemDoAluno(contactId, { texto, arquivoToken }, log) {
+export async function registrarMensagemDoAluno(contactId, { texto, arquivoToken, clienteId }, log) {
   texto = String(texto ?? "").trim().slice(0, LIMITE_TEXTO);
+  // Correlação do balão local com o eco e o histórico; clientes antigos podem omitir.
+  clienteId = typeof clienteId === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(clienteId) ? clienteId : null;
   let anexo = null;
   if (arquivoToken) {
     anexo = await umaLinha("select * from arquivos where token = $1 and contact_id = $2", [arquivoToken, contactId]);
@@ -47,8 +49,8 @@ export async function registrarMensagemDoAluno(contactId, { texto, arquivoToken 
   const atendimento = await atendimentoAberto(contactId);
   const id = randomUUID();
   const msg = await umaLinha(
-    `insert into mensagens (id, contact_id, direcao, texto, anexo_url, anexo_tipo, anexo_nome, status, atendimento_id)
-     values ($1, $2, 'aluno', $3, $4, $5, $6, 'pendente', $7) returning *`,
+    `insert into mensagens (id, contact_id, direcao, texto, anexo_url, anexo_tipo, anexo_nome, status, atendimento_id, cliente_id)
+     values ($1, $2, 'aluno', $3, $4, $5, $6, 'pendente', $7, $8) returning *`,
     [
       id,
       contactId,
@@ -57,6 +59,7 @@ export async function registrarMensagemDoAluno(contactId, { texto, arquivoToken 
       anexo?.mime ?? null,
       anexo?.nome ?? null,
       atendimento.id,
+      clienteId,
     ],
   );
   await publicar(contactId, id); // eco para outras abas do mesmo aluno

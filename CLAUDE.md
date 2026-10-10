@@ -2,7 +2,7 @@
 
 Webchat de suporte para a área do aluno do portal **Eduno** (HotSystems), ligado ao **DataCrazy CRM** do grupo **RJ Global** pela **Conexão Universal**. O DataCrazy é a caixa de atendimento e a base de leads; o webchat é só mais um canal, igual ao WhatsApp.
 
-> **Começando uma conversa nova?** Leia este arquivo inteiro, depois as ADRs [003](docs/decisions/003-producao-mapeamento-identidade-cpf.md) e [004](docs/decisions/004-atendimentos-encerramento-atendente-setores.md). O histórico das decisões está em `docs/decisions/` (001 → 005).
+> **Começando uma conversa nova?** Leia este arquivo inteiro, depois as ADRs [003](docs/decisions/003-producao-mapeamento-identidade-cpf.md) e [004](docs/decisions/004-atendimentos-encerramento-atendente-setores.md). O histórico das decisões está em `docs/decisions/` (001 → 006).
 
 **Repositório:** https://github.com/tiagolau/rhino-web-chat (privado, branch `main`). Commits só quando o Tiago pedir; para funcionalidade nova, criar branch a partir da `main`. O deploy (`app/deploy/deploy.sh`) envia a pasta local, não o que está no GitHub: confira se está na branch certa antes de publicar.
 
@@ -56,6 +56,7 @@ Portal Eduno ── widget.js ──(HTTPS + WebSocket)──► webchat-api (2 
 
 ## Padrões do código
 
+- **Correlação de mensagens (ADR 006):** `clienteId` do envio fica em `mensagens.cliente_id` e volta no eco, histórico e ack. O widget reconcilia pelo ID ou pela correlação, inclusive ao recarregar histórico antes do ack; nunca deduplicar por conteúdo. Playwright é dependência só de desenvolvimento (`npm run test:ui`).
 - **Interface (ADR 005):** página `/chat` com apresentação RJ Global e montagem em `#chat-mount`; widget e página compartilham tokens visuais no Shadow DOM, ícones SVG próprios e fontes locais. Formulário móvel com rolagem natural; widget do portal em tela cheia no celular. Redesign publicado em 2026-10-10 a partir de `feat/redesign-webchat`, com duas réplicas e validação da página pública em desktop e celular.
 - **Atendimentos (ADR 004):** no widget cada suporte é um atendimento (`atendimentos`, um aberto por aluno); no DataCrazy a conversa é uma só e cada atendimento é uma "thread". Encerramento pelo aluno → job `finalizar_no_datacrazy` (`/finish` + anotação interna). Encerramento no DataCrazy → automação "atendimento finalizado" → `POST /dc/:slug/evento`. Nome do atendente → job `identificar_atendente` (REST `histories`, no máximo 1 consulta/min por atendimento). Avisos na linha do tempo são mensagens `direcao = 'sistema'`.
 - **Automações do DataCrazy** não têm API: o roteador é gerado por `datacrazy/gerar_automacoes_webchat.py` a partir do export do fluxo do WhatsApp e importado no painel. Na Conexão Universal **botões não vão e o robô não espera o clique**: as opções viram linhas `▸ Opção` (o widget mostra como botões) e o roteador decide pelo texto, por `novo_atendimento` e por `com_atendente` (campos do nosso webhook, lidos como `[Message-1]...`). A automação do webchat **não pode criar lead** (o backend vincula pelo CPF).
@@ -98,6 +99,9 @@ Portal Eduno ── widget.js ──(HTTPS + WebSocket)──► webchat-api (2 
 ```bash
 # testes unitários
 cd app && npm test
+
+# regressão de UI (API/WebSocket simulados, sem CRM)
+cd app && npx playwright install chromium && npm run test:ui
 
 # dev local (Postgres local `rhino_webchat`; app/.env não versionado, ver app/.env.example)
 cd app && npm install --cache /tmp/npm-cache-rhino && node --env-file=.env src/server.js

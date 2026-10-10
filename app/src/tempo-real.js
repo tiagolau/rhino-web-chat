@@ -24,6 +24,7 @@ export const totalConexoes = () => [...conexoes.values()].reduce((n, s) => n + s
 export function serializarMensagem(m) {
   return {
     id: m.id,
+    clienteId: m.cliente_id || null,
     direcao: m.direcao,
     texto: m.texto,
     anexo: m.anexo_url ? { url: m.anexo_url, tipo: m.anexo_tipo, nome: m.anexo_nome } : null,

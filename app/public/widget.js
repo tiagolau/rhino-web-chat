@@ -560,7 +560,10 @@
         estado.mensagens = pendentes;
       } else {
         estado.atendimento = a;
-        estado.mensagens = r.mensagens.concat(pendentes);
+        // O histórico pode chegar antes do ack: reconcilia também pelo clienteId.
+        estado.mensagens = r.mensagens.concat(pendentes.filter(function (p) {
+          return !r.mensagens.some(function (m) { return p.clienteId && m.clienteId === p.clienteId; });
+        }));
       }
       renderizar();
     });
