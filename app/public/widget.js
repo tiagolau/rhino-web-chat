@@ -64,63 +64,40 @@
     try { localStorage.setItem(CHAVE_TOKENS, JSON.stringify(todos)); } catch (e) {}
   }
 
+  function icone(tipo) {
+    var formas = {
+      chat: '<path d="M5 5h14v11H9l-4 4V5Z"/><path d="M9 9h6M9 12h4"/>',
+      fechar: '<path d="m6 6 12 12M18 6 6 18"/>',
+      enviar: '<path d="m5 12 14-7-5 14-2-7-7 0Z"/><path d="m12 12 7-7"/>',
+      anexo: '<path d="m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7l9-9"/><path d="m8 13 7-7"/>',
+      arquivo: '<path d="M6 3h8l4 4v14H6V3Z"/><path d="M14 3v5h4M9 13h6M9 17h4"/>'
+    };
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + formas[tipo] + '</svg>';
+  }
+
   // ----------------------------------------------------------------- DOM ---
   var host = document.createElement("div");
   host.id = "rhino-webchat";
   var raiz = host.attachShadow({ mode: "open" });
   raiz.innerHTML =
     "<style>" +
-    ":host{all:initial}" +
-    "*{box-sizing:border-box;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}" +
-    ".lancador{position:fixed;right:20px;bottom:64px;z-index:1000;display:flex;align-items:center;gap:8px;border:0;border-radius:999px;padding:12px 18px;background:#1d4ed8;color:#fff;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.2)}" +
-    ".lancador:hover{background:#1e40af}.lancador:focus-visible{outline:3px solid #93c5fd;outline-offset:2px}" +
-    ".selo{min-width:20px;height:20px;border-radius:10px;background:#dc2626;color:#fff;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 6px}" +
-    ".painel{position:fixed;right:20px;bottom:64px;z-index:1000;width:370px;height:560px;max-height:calc(100vh - 96px);display:none;flex-direction:column;background:#fff;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.25);overflow:hidden;color:#111827}" +
-    ".painel.aberto{display:flex}" +
-    ":host(.pagina){display:block}" +
-    ":host(.pagina) .painel{position:static;width:100%;max-width:720px;height:100vh;height:100dvh;max-height:none;margin:0 auto;border-radius:0;display:flex}" +
-    ".topo{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:#1d4ed8;color:#fff}" +
-    ".topo h2{margin:0;font-size:16px}.topo p{margin:2px 0 0;font-size:12px;opacity:.85}" +
-    ".fechar{border:0;background:transparent;color:#fff;font-size:22px;line-height:1;cursor:pointer;padding:4px 8px}" +
-    ".aviso{padding:6px 12px;font-size:12px;background:#fef3c7;color:#92400e;display:none}" +
-    ".lista{flex:1;overflow-y:auto;padding:16px;background:#f3f4f6;display:flex;flex-direction:column;gap:8px}" +
-    ".vazio{margin:auto;text-align:center;color:#6b7280;font-size:14px;max-width:260px;line-height:1.4}" +
-    ".msg{max-width:80%;padding:8px 12px;border-radius:12px;font-size:14px;line-height:1.4;white-space:pre-wrap;word-wrap:break-word}" +
-    ".msg.aluno{align-self:flex-end;background:#1d4ed8;color:#fff;border-bottom-right-radius:4px}" +
-    ".msg.atendente{align-self:flex-start;background:#fff;border-bottom-left-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,.08)}" +
-    ".msg .meta{display:block;margin-top:4px;font-size:11px;opacity:.7;text-align:right}" +
-    ".msg.falha{background:#fee2e2;color:#991b1b}" +
-    ".opcoes{align-self:flex-start;display:flex;flex-wrap:wrap;gap:6px;max-width:90%;margin-top:-2px}" +
-    ".opcao{border:1px solid #1d4ed8;border-radius:999px;padding:7px 12px;background:#fff;color:#1d4ed8;font-size:13px;cursor:pointer;text-align:left}" +
-    ".opcao:hover{background:#eff6ff}.opcao:focus-visible{outline:2px solid #93c5fd}" +
-    ".msg.sistema{align-self:center;max-width:90%;padding:2px 8px;background:transparent;color:#6b7280;font-size:12px;text-align:center}" +
-    ".barra{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:34px;padding:4px 8px;background:#eff6ff;border-bottom:1px solid #dbeafe;font-size:12px;color:#1e3a8a}" +
-    ".barra:empty{display:none}" +
-    ".barra button{border:0;background:transparent;color:#1d4ed8;font-size:12px;font-weight:600;cursor:pointer;padding:5px 8px;border-radius:6px}" +
-    ".barra button:hover{background:#dbeafe}.barra button.perigo{color:#b91c1c}.barra button.perigo:hover{background:#fee2e2}" +
-    ".encerrado{display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px;border-top:1px solid #e5e7eb;background:#fff;font-size:14px;color:#374151}" +
-    ".encerrado button{border:0;border-radius:10px;padding:10px 16px;background:#1d4ed8;color:#fff;font-size:14px;font-weight:600;cursor:pointer}" +
-    ".item{display:block;width:100%;text-align:left;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;background:#fff;cursor:pointer;font-size:13px;color:#111827}" +
-    ".item:hover{border-color:#93c5fd}.item strong{display:block;margin-bottom:2px}.item span{display:block;color:#6b7280;font-size:12px}" +
-    ".msg img{display:block;max-width:100%;border-radius:8px;margin-bottom:4px}" +
-    ".msg a{color:inherit;text-decoration:underline}" +
-    ".rodape{display:flex;gap:6px;align-items:flex-end;padding:10px;border-top:1px solid #e5e7eb;background:#fff}" +
-    ".rodape textarea{flex:1;resize:none;border:1px solid #d1d5db;border-radius:10px;padding:9px 10px;font-size:14px;max-height:120px;min-height:40px}" +
-    ".rodape textarea:focus{outline:2px solid #93c5fd;border-color:#1d4ed8}" +
-    ".icone{border:0;border-radius:10px;width:40px;height:40px;cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center}" +
-    ".anexar{background:#f3f4f6;color:#374151}.enviar{background:#1d4ed8;color:#fff}" +
-    ".icone:disabled{opacity:.5;cursor:default}" +
-    ".form{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}" +
-    ".form label{font-size:13px;color:#374151;display:flex;flex-direction:column;gap:4px}" +
-    ".form input,.form select{border:1px solid #d1d5db;border-radius:8px;padding:10px;font-size:14px}" +
-    ".form button{border:0;border-radius:10px;padding:12px;background:#1d4ed8;color:#fff;font-size:15px;font-weight:600;cursor:pointer}" +
-    ".form .erro{color:#b91c1c;font-size:13px;min-height:18px}" +
-    ".form p{margin:0;color:#4b5563;font-size:14px;line-height:1.4}" +
-    "@media (max-width:480px){.painel{right:0;bottom:0;width:100vw;height:100vh;max-height:none;border-radius:0}}" +
+    ":host{all:initial;--ink:#17343d;--muted:#63777b;--accent:#087f75;--line:#e0e9e7;--paper:#f6f8f6;color:var(--ink);font-family:'Avenir Next',Avenir,'Segoe UI',sans-serif}" +
+    "*{box-sizing:border-box;font-family:inherit}button,input,select,textarea{font:inherit}button{cursor:pointer}button,textarea,input,select{-webkit-tap-highlight-color:transparent}button:focus-visible,a:focus-visible{outline:3px solid #37a99a;outline-offset:3px}svg{width:22px;height:22px;flex-shrink:0}button{transition:background .16s,transform .16s}button:active{transform:translateY(1px)}" +
+    ".lancador{position:fixed;right:24px;bottom:64px;z-index:1000;display:flex;align-items:center;gap:10px;border:1px solid #ffffff30;border-radius:18px;padding:16px 20px;background:var(--ink);color:#fff;font-size:14px;font-weight:600;box-shadow:0 8px 28px #17343d30}.lancador:hover{background:var(--accent)}.selo{min-width:22px;height:22px;border-radius:12px;background:#c54d40;color:#fff;font-size:12px;display:none;align-items:center;justify-content:center;padding:0 6px}" +
+    ".painel{position:fixed;right:24px;bottom:64px;z-index:1000;width:410px;height:640px;max-height:calc(100dvh - 96px);display:none;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:24px;box-shadow:0 20px 70px #17343d26;overflow:hidden;color:var(--ink)}.painel.aberto{display:flex;animation:entrada .22s ease-out}" +
+    ":host(.pagina){display:block;width:100%;height:100%;min-height:0}:host(.pagina) .painel{position:static;width:100%;height:100%;max-height:none;border-radius:24px;display:flex;box-shadow:0 18px 60px #17343d0d}" +
+    ".topo{display:flex;align-items:center;gap:12px;padding:22px 24px;border-bottom:1px solid var(--line);background:#fff}.marca{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:44px;height:44px;border-radius:15px;background:var(--ink);color:#fff}.topo h2{margin:0;font-size:16px;letter-spacing:-.3px;font-weight:650}.topo p{margin:5px 0 0;font-size:12px;line-height:1.5;color:var(--muted)}.fechar{margin-left:auto;border:0;background:var(--paper);color:var(--muted);border-radius:10px;padding:9px;display:flex}.fechar:hover{background:var(--line)}" +
+    ".aviso{padding:12px 24px;font-size:13px;line-height:1.5;background:#fff3dc;color:#815218;display:none}.lista{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:24px;background:var(--paper);display:flex;flex-direction:column;gap:12px;scrollbar-width:thin;scrollbar-color:#b7cbc6 transparent}.vazio{margin:auto;text-align:center;color:var(--muted);font-size:14px;max-width:300px;line-height:1.7}.vazio .simbolo{display:flex;align-items:center;justify-content:center;width:64px;height:64px;border:1px solid #d6e6e0;border-radius:22px;background:#eaf2ee;color:var(--accent);margin:0 auto 22px}.vazio h3{font-size:24px;font-weight:600;letter-spacing:-.6px;color:var(--ink);margin:0 0 10px}.vazio p{margin:0}" +
+    ".msg{max-width:84%;padding:13px 16px;border-radius:18px;font-size:14px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}.msg.aluno{align-self:flex-end;background:var(--ink);color:#fff;border-bottom-right-radius:5px}.msg.atendente{align-self:flex-start;background:#fff;border:1px solid var(--line);border-bottom-left-radius:5px}.msg .meta{display:block;margin-top:7px;font-size:10px;opacity:.7;text-align:right}.msg.falha{background:#fff0ed;color:#a83227;border:1px solid #edc8c2}.msg.sistema{align-self:center;max-width:95%;padding:6px 12px;background:#e8eeea;border-radius:8px;color:#526964;font-size:11px;text-align:center}.msg img{display:block;max-width:100%;max-height:320px;object-fit:contain;border-radius:10px;margin-bottom:6px}.msg a{color:inherit;text-decoration:underline;text-underline-offset:3px}.arquivo{display:inline-flex;align-items:center;gap:8px}" +
+    ".opcoes{align-self:flex-start;display:flex;flex-wrap:wrap;gap:8px;max-width:95%;margin-top:-4px}.opcao{border:1px solid #bad5ce;border-radius:12px;padding:11px 14px;background:#fff;color:#086b63;font-size:13px;font-weight:600;text-align:left;min-height:44px}.opcao:hover{background:#e7f3ed;border-color:var(--accent)}" +
+    ".barra{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 16px;background:#fff;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);flex-wrap:wrap}.barra:empty{display:none}.barra button{border:0;background:transparent;color:#166e65;font-size:12px;font-weight:600;padding:10px 8px;border-radius:8px}.barra button:hover{background:#edf5f1}.barra button.perigo{color:#a43c32}.barra button.perigo:hover{background:#fff0ed}.encerrado{display:flex;flex-direction:column;align-items:center;gap:14px;padding:24px;border-top:1px solid var(--line);background:#fff;font-size:14px;color:var(--muted)}.encerrado button,.form button{border:0;border-radius:12px;padding:15px 20px;background:var(--accent);color:#fff;font-size:14px;font-weight:600}.encerrado button:hover,.form button:hover{background:#06685f}.item{display:block;width:100%;text-align:left;border:1px solid var(--line);border-radius:16px;padding:18px;background:#fff;font-size:13px;color:var(--ink)}.item:hover{border-color:var(--accent);background:#fafffc}.item strong{display:block;margin-bottom:8px}.item span{display:block;color:var(--muted);font-size:12px;line-height:1.6}" +
+    ".rodape{display:flex;gap:10px;align-items:flex-end;padding:18px;border-top:1px solid var(--line);background:#fff}.rodape textarea{flex:1;min-width:0;resize:none;border:1px solid var(--line);background:var(--paper);border-radius:14px;padding:13px 14px;font-size:14px;line-height:1.5;max-height:120px;min-height:48px;color:var(--ink)}.rodape textarea:focus,.form input:focus,.form select:focus{outline:2px solid #087f7540;outline-offset:2px;border-color:var(--accent)}.icone{border:0;border-radius:14px;width:48px;height:48px;flex-shrink:0;display:flex;align-items:center;justify-content:center}.anexar{background:var(--paper);color:var(--muted)}.anexar:hover{background:var(--line)}.enviar{background:var(--accent);color:#fff}.enviar:hover{background:#06685f}.icone:disabled,.form button:disabled{opacity:.5;cursor:wait}" +
+    ".form{flex:1;overflow-y:auto;padding:28px;display:flex;flex-direction:column;gap:18px}.form-intro{margin-bottom:6px}.sobretitulo{color:var(--accent);font-size:10px;letter-spacing:1.7px;font-weight:700;text-transform:uppercase}.form h3{margin:10px 0;font-size:28px;letter-spacing:-1px;font-weight:600}.form label{font-size:12px;font-weight:600;color:var(--ink);display:flex;flex-direction:column;gap:8px}.form input,.form select{width:100%;min-width:0;border:1px solid #d6e1dd;border-radius:11px;padding:13px 14px;font-size:14px;background:#fff;color:var(--ink);min-height:48px;font-weight:400}.form input::placeholder{color:#7d8f91}.campos{display:grid;grid-template-columns:1fr 1fr;gap:16px}.form .erro{color:#aa382f;font-size:13px;line-height:1.5}.form .erro:empty{display:none}.form p{margin:0;color:var(--muted);font-size:13px;line-height:1.7}.form .privacidade{font-size:11px;text-align:center;color:#6c807d}.form button{display:flex;align-items:center;justify-content:center;gap:12px}.form .opcional{font-weight:400;color:var(--muted)}" +
+    "@keyframes entrada{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}@media(max-width:600px){.painel{right:0;bottom:0;width:100%;height:100dvh;max-height:none;border-radius:0}.topo{padding:18px}.form{padding:22px;gap:16px}.campos{grid-template-columns:1fr}.lista{padding:18px}.rodape{padding:12px;gap:8px}.msg{max-width:90%}:host(.pagina) .painel{border-radius:18px}.form h3{font-size:25px}:host(.pagina.identificacao) .painel{height:auto}:host(.pagina.identificacao) .form{overflow:visible}}" +
     "</style>" +
-    '<button class="lancador" type="button" aria-label="Abrir atendimento"><span aria-hidden="true">💬</span> Suporte <span class="selo"></span></button>' +
+    '<button class="lancador" type="button" aria-label="Abrir atendimento">' + icone("chat") + ' Suporte <span class="selo"></span></button>' +
     '<section class="painel" role="dialog" aria-label="Atendimento">' +
-    '<header class="topo"><div><h2>Atendimento</h2><p class="subtitulo"></p></div><button class="fechar" type="button" aria-label="Fechar">×</button></header>' +
+    '<header class="topo"><span class="marca">' + icone("chat") + '</span><div><h2>Atendimento ao aluno</h2><p class="subtitulo">Um espaço para resolver suas dúvidas</p></div><button class="fechar" type="button" aria-label="Fechar">' + icone("fechar") + '</button></header>' +
     '<div class="aviso" role="status"></div>' +
     '<div class="corpo" style="flex:1;display:flex;flex-direction:column;min-height:0"></div>' +
     "</section>";
@@ -224,17 +201,18 @@
   }
 
   function mostrarFormulario() {
+    host.classList.add("identificacao");
     limparCorpo();
     var form = document.createElement("form");
     form.className = "form";
     form.innerHTML =
-      "<p>Para falar com a secretaria, informe seus dados de aluno.</p>" +
-      '<label>Nome completo<input name="nome" required autocomplete="name"></label>' +
-      '<label>CPF<input name="cpf" required inputmode="numeric" autocomplete="off" placeholder="000.000.000-00"></label>' +
-      '<label>Faculdade<select name="faculdade" required><option value="">Carregando…</option></select></label>' +
-      '<label>Celular (opcional)<input name="celular" inputmode="tel" autocomplete="tel" placeholder="(31) 99999-9999"></label>' +
-      '<label>E-mail (opcional)<input name="email" type="email" autocomplete="email"></label>' +
-      '<div class="erro" role="alert"></div><button type="submit">Iniciar atendimento</button>';
+      '<div class="form-intro"><span class="sobretitulo">Vamos começar</span><h3>Como podemos ajudar?</h3><p>Identifique-se para conversar com a equipe da sua faculdade.</p></div>' +
+      '<label>Nome completo<input name="nome" required autocomplete="name" placeholder="Seu nome completo"></label>' +
+      '<div class="campos"><label>CPF<input name="cpf" required inputmode="numeric" autocomplete="off" placeholder="000.000.000-00"></label>' +
+      '<label>Faculdade<select name="faculdade" required><option value="">Carregando…</option></select></label></div>' +
+      '<label><span>Celular <span class="opcional">(opcional)</span></span><input name="celular" inputmode="tel" autocomplete="tel" placeholder="(31) 99999-9999"></label>' +
+      '<label><span>E-mail <span class="opcional">(opcional)</span></span><input name="email" type="email" autocomplete="email" placeholder="voce@exemplo.com"></label>' +
+      '<div class="erro" role="alert"></div><button type="submit">Iniciar atendimento' + icone("enviar") + '</button><p class="privacidade">Seus dados identificam seu atendimento junto à faculdade.</p>';
     var select = form.querySelector("select");
     var erro = form.querySelector(".erro");
     api("/api/faculdades").then(function (lista) {
@@ -265,6 +243,7 @@
   var barra, lista, rodape, cartaoEncerrado, textarea, botaoEnviar, botaoAnexar, inputArquivo;
 
   function mostrarConversa() {
+    host.classList.remove("identificacao");
     limparCorpo();
     barra = document.createElement("div");
     barra.className = "barra";
@@ -274,10 +253,10 @@
     rodape = document.createElement("div");
     rodape.className = "rodape";
     rodape.innerHTML =
-      '<button class="icone anexar" type="button" aria-label="Anexar arquivo">📎</button>' +
+      '<button class="icone anexar" type="button" aria-label="Anexar arquivo">' + icone("anexo") + '</button>' +
       '<input type="file" hidden accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt,audio/*,video/mp4">' +
       '<textarea rows="1" placeholder="Escreva sua mensagem…" aria-label="Mensagem"></textarea>' +
-      '<button class="icone enviar" type="button" aria-label="Enviar">➤</button>';
+      '<button class="icone enviar" type="button" aria-label="Enviar">' + icone("enviar") + '</button>';
     textarea = rodape.querySelector("textarea");
     botaoEnviar = rodape.querySelector(".enviar");
     botaoAnexar = rodape.querySelector(".anexar");
@@ -482,8 +461,13 @@
       var vazio = document.createElement("div");
       vazio.className = "vazio";
       var primeiro = estado.sessao ? String(estado.sessao.aluno.nome).split(" ")[0] : "";
-      vazio.textContent = "Olá" + (primeiro ? ", " + primeiro.charAt(0) + primeiro.slice(1).toLowerCase() : "") +
-        "! Escreva sua dúvida e a secretaria responde por aqui.";
+      vazio.innerHTML = '<span class="simbolo">' + icone("chat") + '</span>';
+      var saudacao = document.createElement("h3");
+      saudacao.textContent = "Olá" + (primeiro ? ", " + primeiro.charAt(0) + primeiro.slice(1).toLowerCase() : "") + "!";
+      vazio.appendChild(saudacao);
+      var orientacao = document.createElement("p");
+      orientacao.textContent = "Seu atendimento começa aqui. Envie sua dúvida para conversar com a equipe da faculdade.";
+      vazio.appendChild(orientacao);
       lista.appendChild(vazio);
       return;
     }
@@ -508,7 +492,9 @@
         } else {
           var link = document.createElement("a");
           link.href = m.anexo.url; link.target = "_blank"; link.rel = "noopener";
-          link.textContent = "📄 " + (m.anexo.nome || "arquivo");
+          link.className = "arquivo";
+          link.innerHTML = icone("arquivo");
+          link.appendChild(document.createTextNode(m.anexo.nome || "Arquivo"));
           div.appendChild(link);
           div.appendChild(document.createElement("br"));
         }
@@ -516,7 +502,7 @@
       // Opções que não estão ativas continuam visíveis como texto.
       var corpo = i === ativas ? partes.texto : m.texto;
       if (corpo && !(m.anexo && corpo === m.anexo.nome)) div.appendChild(document.createTextNode(corpo));
-      else if (!m.texto && !m.anexo) div.appendChild(document.createTextNode("📎 carregando anexo…"));
+      else if (!m.texto && !m.anexo) div.appendChild(document.createTextNode("Carregando anexo…"));
       var meta = document.createElement("span");
       meta.className = "meta";
       meta.textContent = m.status === "enviando" ? "enviando…" : m.status === "falha" ? "não enviada" : hora(m.criadaEm);
@@ -700,7 +686,7 @@
 
   function iniciar() {
     if (MODO === "pagina") {
-      document.body.appendChild(host);
+      (document.getElementById("chat-mount") || document.body).appendChild(host);
       estado.aberto = true;
       el.painel.classList.add("aberto");
       if (tokenSalvo()) abrirAtendimento(); else mostrarFormulario();

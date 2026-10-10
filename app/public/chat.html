@@ -4,10 +4,38 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <title>Atendimento ao aluno</title>
-  <style>html,body{margin:0;background:#e5e7eb}</style>
+  <meta name="theme-color" content="#17343d">
+  <title>Atendimento ao aluno | RJ Global</title>
+  <style>
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:#f3f5f1;color:#17343d;font-family:'Avenir Next',Avenir,'Segoe UI',sans-serif}
+    body{padding:0 48px}.shell{max-width:1180px;margin:auto}.cabecalho{height:100px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #dce5df}.identidade{display:flex;align-items:center;gap:12px}.emblema{width:38px;height:38px;border:1px solid #17343d;border-radius:12px;display:grid;place-items:center}.emblema svg{width:23px;height:23px}.identidade strong{font-size:17px;letter-spacing:-.6px}.identidade span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:1.7px;margin-top:4px;color:#63777b}.contexto{font-size:12px;color:#63777b}.principal{display:grid;grid-template-columns:.9fr 1.1fr;gap:76px;align-items:center;padding:42px 0}.apresentacao{padding:10px 0}.etiqueta{display:inline-flex;align-items:center;gap:9px;font-size:10px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:#087f75}.etiqueta::before{content:'';width:7px;height:7px;border-radius:50%;background:#087f75}h1{font-size:clamp(40px,4.4vw,62px);font-weight:500;line-height:1.09;letter-spacing:-2.7px;margin:24px 0}h1 em{font-style:normal;color:#087f75}.descricao{font-size:15px;line-height:1.85;max-width:340px;color:#63777b;margin:0}.servicos{display:flex;flex-wrap:wrap;gap:8px;margin:28px 0 38px}.servicos span{font-size:11px;border:1px solid #d9e3dc;border-radius:7px;padding:8px 11px;color:#4b6562}.orientacoes{border-top:1px solid #dce5df;padding-top:24px;display:flex;flex-direction:column;gap:22px}.passo{display:flex;align-items:flex-start;gap:14px}.numero{font-size:10px;color:#087f75;border:1px solid #c6d9d0;width:27px;height:27px;border-radius:50%;display:grid;place-items:center;flex-shrink:0}.passo strong{font-size:13px;font-weight:600;display:block;margin:2px 0 5px}.passo p{font-size:12px;line-height:1.65;margin:0;color:#63777b;max-width:300px}#chat-mount{height:740px;max-height:calc(100dvh - 180px);min-height:620px}.rodape-pagina{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 0 28px;border-top:1px solid #dce5df;font-size:10px;color:#6b8179;letter-spacing:.2px}
+    @media(min-width:1500px){.principal{padding:56px 0}#chat-mount{height:780px}}
+    @media(max-width:1000px){body{padding:0 28px}.principal{gap:36px;grid-template-columns:.85fr 1.15fr}h1{font-size:44px;letter-spacing:-2px}#chat-mount{min-height:640px}}
+    @media(max-width:760px){body{padding:0 18px}.cabecalho{height:76px}.contexto{font-size:10px}.principal{display:flex;flex-direction:column;align-items:stretch;gap:24px;padding:28px 0}.apresentacao{padding:0}h1{font-size:36px;letter-spacing:-1.5px;margin:14px 0 12px;max-width:420px}.descricao{max-width:100%;font-size:13px}.servicos,.orientacoes{display:none}#chat-mount{height:700px;max-height:none;min-height:0}#chat-mount:has(>.identificacao){height:auto}.rodape-pagina{font-size:9px;align-items:flex-start}.rodape-pagina span:last-child{text-align:right}}
+  </style>
 </head>
 <body>
+  <div class="shell">
+    <header class="cabecalho">
+      <div class="identidade"><div class="emblema" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m3 9 9-5 9 5-9 5-9-5ZM6 11v6c4 3 8 3 12 0v-6M21 9v8"/></svg></div><div><strong>RJ Global</strong><span>Atendimento ao aluno</span></div></div>
+      <span class="contexto">Sua faculdade, mais perto.</span>
+    </header>
+    <main class="principal">
+      <section class="apresentacao" aria-labelledby="titulo">
+        <span class="etiqueta">Central do aluno</span>
+        <h1 id="titulo">Sua jornada.<br>Nosso <em>apoio.</em></h1>
+        <p class="descricao">Um canal direto com a equipe da sua faculdade. Tire dúvidas, envie documentos e acompanhe seu atendimento em um só lugar.</p>
+        <div class="servicos" aria-label="Áreas de atendimento"><span>Secretaria</span><span>Financeiro</span><span>Pedagógico</span></div>
+        <div class="orientacoes">
+          <div class="passo"><span class="numero">01</span><div><strong>Identifique-se</strong><p>Informe seus dados e selecione a faculdade em que você estuda.</p></div></div>
+          <div class="passo"><span class="numero">02</span><div><strong>Conte o que precisa</strong><p>Envie sua dúvida. Você também pode compartilhar arquivos durante a conversa.</p></div></div>
+          <div class="passo"><span class="numero">03</span><div><strong>Continue por aqui</strong><p>Acompanhe as respostas e consulte os atendimentos anteriores neste navegador.</p></div></div>
+        </div>
+      </section>
+      <div id="chat-mount" aria-label="Central de atendimento"></div>
+    </main>
+    <footer class="rodape-pagina"><span>RJ Global · Central de atendimento</span><span>Suporte para sua vida acadêmica.</span></footer>
+  </div>
   <script src="/widget.js" data-modo="pagina" defer></script>
 </body>
 </html>
