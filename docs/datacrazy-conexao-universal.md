@@ -131,6 +131,28 @@ Detalhes e contexto: ADR `docs/decisions/001-webchat-eduno-via-conexao-universal
 - **Enviar como atendente pela REST:** `POST /api/v1/conversations/{id}/messages` com `{"body": "...", "attachments": [{"url", "fileName", "mimeType", "type"}]}` dispara o envio pela Conexão Universal. Útil para testes.
 - **Instância:** a conexão aparece em `GET /api/v1/instances` com `platform`/`provider` = `UNIVERSAL`/`UNIVERSAL_CONNECTION` e o campo `webhook` com a URL de recebimento.
 
+## Atendente, finalização e anotações (validado em 2026-10-10)
+
+Contexto: [ADR 004](decisions/004-atendimentos-encerramento-atendente-setores.md).
+
+- **Não há variável de atendente nem de botões.** A [documentação oficial](https://docs.datacrazy.io/universal-connection/sending-messages) lista só `${message.body}`, `${message.id}`, `${contact.contactId}`, `${contact.name}`, `${attachment.*}` e `${credentials.*}`. A assinatura do atendente **não vem no corpo**: o espelho recebeu "testadp", não "*Tiago:* testadp".
+- **O atendente está na REST.** `GET /api/v1/conversations/{id}/messages` devolve, além de `messages`, um array **`histories`**: `conversation-opened` e `attendant-added` com `params.attendantName`, e `conversation-finished`. Cada mensagem do atendente traz `attendant.name` e `signature`; as da automação não trazem nenhum dos dois.
+- **Conversa:** `GET /api/v1/conversations?search=<contactId>` traz `finished`, `attendants` (com nome) e `currentThread` (o ticket do atendimento, com `code`). Depois de finalizada, `currentThread` some.
+- **Finalizar pela REST:** `POST /api/v1/conversations/{id}/finish` deixa `finished: true` e grava `conversation-finished`. **Não envia nada ao aluno** pela conexão.
+- **Anotação interna:** `POST /api/v1/conversations/{id}/messages` com `{"body": "...", "isInternal": true}` fica só no painel. **Não passa** pelo endpoint de envio da conexão.
+- **Sem API de automações:** a OpenAPI não tem rotas de automação. Elas só entram por importação no painel.
+- **`/finish` é idempotente** (201 numa conversa já finalizada) e **limpa o departamento** (grava `department-changed` junto com `conversation-finished`).
+
+## Automações na Conexão Universal (validado em 2026-10-10)
+
+- **Botões não são enviados.** Uma mensagem de automação com botões chega ao endpoint de envio só com o texto. O DataCrazy guarda os botões na mensagem (`buttons: [{name}]` na REST), mas não os passa pela conexão.
+- **A automação não espera o clique.** A mensagem com botões não segura a sessão: a resposta do aluno (mesmo digitando o texto exato do botão) **dispara o gatilho de novo** em vez de seguir pelo botão.
+- **O gatilho `message-received` com `only-if-finished-service` dispara a cada mensagem do aluno**, inclusive **depois que um atendente assume** a conversa. Quem decide se o robô fala é a própria automação (no webchat, pelo campo `com_atendente` que o backend manda).
+- **Payload do gatilho:** com `receiveJson: true`, o datasource tem **o nosso JSON cru** do webhook: `[Message-1]text`, `[Message-1]novo_atendimento` etc. (`[Message-1]text.body`, que vale na Cloud API, vem vazio).
+- `field-is-equal-condition` com `parameter: "[Message-1]text"` funciona como roteador (um bloco de condição com várias condições, cada uma com o seu `nextBlockId`, e `falseNextBlockId` para nenhuma).
+- **`thread-finished-trigger`** com a instância do webchat dispara quando o atendente finaliza, quando uma automação executa `finish-conversation-action` e quando o webchat chama o `/finish` (o eco chega em ~0,2 s). No bloco HTTP dele, `${conversationId}` e `${leadId}` chegam preenchidos.
+- `change-conversation-department-action`, `add-tag-action`, `lead-has-tag-condition`, `lead-exists-condition`, `{Primeiro nome do lead|leadFirstName}` e `send-file-message` (vai pelo Endpoint Adicional "Anexos") funcionam normalmente.
+
 ## Lacunas da extração
 
 - Campos extras de **Bearer Token** não confirmados.

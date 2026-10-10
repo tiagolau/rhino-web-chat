@@ -3,7 +3,8 @@
 import { randomUUID } from "node:crypto";
 import { query, umaLinha } from "./db.js";
 import { faculdadePorSlug } from "./faculdades.js";
-import { enviarAoWebhook, buscarConversas, mensagensDaConversa } from "./datacrazy.js";
+import { enviarAoWebhook, mensagensDaConversa } from "./datacrazy.js";
+import { atendimentoAberto, conversaDoAluno, pedirChecagemDoAtendente } from "./atendimentos.js";
 import { enfileirar } from "./fila.js";
 import { publicar } from "./tempo-real.js";
 import { config } from "./config.js";
@@ -11,8 +12,16 @@ import { config } from "./config.js";
 export const LIMITE_TEXTO = 4000;
 
 async function enviarMensagemAoDataCrazy(mensagemId) {
+  // `primeira`: é a primeira mensagem do aluno neste atendimento; `atendente`: um
+  // humano já assumiu. A automação do DataCrazy usa os dois para saber quando
+  // falar (ADR 004).
   const m = await umaLinha(
-    "select m.*, a.nome, a.faculdade from mensagens m join alunos a on a.contact_id = m.contact_id where m.id = $1",
+    `select m.*, a.nome, a.faculdade, at.atendente,
+            not exists (select 1 from mensagens o where o.atendimento_id = m.atendimento_id and o.direcao = 'aluno'
+                        and (o.created_at, o.id) < (m.created_at, m.id)) as primeira
+     from mensagens m join alunos a on a.contact_id = m.contact_id
+     left join atendimentos at on at.id = m.atendimento_id
+     where m.id = $1`,
     [mensagemId],
   );
   if (!m || m.status === "enviada") return;
@@ -34,10 +43,12 @@ export async function registrarMensagemDoAluno(contactId, { texto, arquivoToken 
   }
   if (!texto && !anexo) throw new Error("mensagem vazia");
 
+  // Depois de encerrado, a próxima mensagem abre um atendimento novo.
+  const atendimento = await atendimentoAberto(contactId);
   const id = randomUUID();
   const msg = await umaLinha(
-    `insert into mensagens (id, contact_id, direcao, texto, anexo_url, anexo_tipo, anexo_nome, status)
-     values ($1, $2, 'aluno', $3, $4, $5, $6, 'pendente') returning *`,
+    `insert into mensagens (id, contact_id, direcao, texto, anexo_url, anexo_tipo, anexo_nome, status, atendimento_id)
+     values ($1, $2, 'aluno', $3, $4, $5, $6, 'pendente', $7) returning *`,
     [
       id,
       contactId,
@@ -45,6 +56,7 @@ export async function registrarMensagemDoAluno(contactId, { texto, arquivoToken 
       anexo ? `${config.publicUrl}/f/${anexo.token}/${encodeURIComponent(anexo.nome)}` : null,
       anexo?.mime ?? null,
       anexo?.nome ?? null,
+      atendimento.id,
     ],
   );
   await publicar(contactId, id); // eco para outras abas do mesmo aluno
@@ -63,19 +75,11 @@ export async function registrarMensagemDoAluno(contactId, { texto, arquivoToken 
 // manda o arquivo do atendente pelo endpoint de texto, sem as variáveis de
 // anexo. Buscamos o arquivo na conversa pela REST (1–2 chamadas).
 export async function jobBuscarAnexo({ mensagemId, dcMessageId, contactId }) {
-  const aluno = await umaLinha("select dc_conversation_id from alunos where contact_id = $1", [contactId]);
-  let conversa = aluno?.dc_conversation_id;
-  const estavaEmCache = Boolean(conversa);
-  if (!conversa) {
-    const achada = (await buscarConversas(contactId)).find((c) => c.contact?.contactId === contactId);
-    if (!achada) throw new Error("conversa do aluno não encontrada no DataCrazy");
-    conversa = achada.id;
-    await query("update alunos set dc_conversation_id = $2 where contact_id = $1", [contactId, conversa]);
-  }
+  const conversa = await conversaDoAluno(contactId);
   const m = (await mensagensDaConversa(conversa)).find((x) => x.id === dcMessageId);
   if (!m) {
     // A conversa pode ter mudado: esquece o cache e deixa a fila tentar de novo.
-    if (estavaEmCache) await query("update alunos set dc_conversation_id = null where contact_id = $1", [contactId]);
+    await query("update alunos set dc_conversation_id = null where contact_id = $1", [contactId]);
     throw new Error("mensagem ainda não aparece na conversa do DataCrazy");
   }
   const anexo = m.attachments?.[0];
@@ -91,16 +95,19 @@ export async function jobBuscarAnexo({ mensagemId, dcMessageId, contactId }) {
 
 // Chamado pelo endpoint /dc/:slug/send. Idempotente pelo id da mensagem no DataCrazy.
 export async function registrarMensagemDoAtendente(contactId, { texto, dcMessageId, anexoUrl, anexoTipo, anexoNome }) {
+  // Atendente (ou automação) escrevendo depois do encerramento abre um atendimento novo.
+  const atendimento = await atendimentoAberto(contactId);
   const id = randomUUID();
   const msg = await umaLinha(
-    `insert into mensagens (id, contact_id, direcao, texto, anexo_url, anexo_tipo, anexo_nome, dc_message_id, status)
-     values ($1, $2, 'atendente', $3, $4, $5, $6, $7, 'recebida')
+    `insert into mensagens (id, contact_id, direcao, texto, anexo_url, anexo_tipo, anexo_nome, dc_message_id, status, atendimento_id)
+     values ($1, $2, 'atendente', $3, $4, $5, $6, $7, 'recebida', $8)
      on conflict (dc_message_id) do nothing
      returning *`,
-    [id, contactId, String(texto ?? ""), anexoUrl || null, anexoTipo || null, anexoNome || null, dcMessageId || null],
+    [id, contactId, String(texto ?? ""), anexoUrl || null, anexoTipo || null, anexoNome || null, dcMessageId || null, atendimento.id],
   );
   if (msg) {
     await publicar(contactId, msg.id);
+    await pedirChecagemDoAtendente(atendimento);
     return msg;
   }
   return umaLinha("select * from mensagens where dc_message_id = $1", [dcMessageId]);

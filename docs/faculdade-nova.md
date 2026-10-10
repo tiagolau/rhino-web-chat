@@ -111,11 +111,32 @@ curl -s -X POST https://webchat.engrenatec.com.br/admin/faculdades \
 
 O mesmo comando atualiza uma faculdade já cadastrada. Para desativar, mande `"ativo": false`.
 
-## 5. Testar
+## 5. Automações do webchat (setores e encerramento)
+
+Na Conexão Universal o DataCrazy não envia botões nem espera o clique, então o fluxo do WhatsApp é convertido num **roteador** ([ADR 004](decisions/004-atendimentos-encerramento-atendente-setores.md)). Exporte no painel o fluxo do WhatsApp da faculdade **com todas as automações** (boas-vindas, menus de setor e subfluxos) e gere:
+
+```bash
+WEBCHAT_API_KEY=<API_KEY> python3 -I datacrazy/gerar_automacoes_webchat.py \
+  --export <export do fluxo.json> --slug <slug> \
+  --instancia <id da instância> --faculdade "<Nome da Faculdade>" \
+  --tag-teste 507ad07e-130c-4aa9-908e-64eba143a0d6
+```
+
+O arquivo sai em `datacrazy/gerado/webchat-<slug>.json` (fora do git, porque leva a `API_KEY`), com duas automações importadas **desativadas**:
+
+- **Webchat <faculdade>: roteador:** saudação, menu de setores, menus e subfluxos. Não editar no painel: mudou o fluxo do WhatsApp, exporte e gere de novo (apague o roteador antigo antes de importar o novo).
+- **Webchat <faculdade>: atendimento finalizado:** confira se o header `X-Api-Key` do bloco HTTP tem a `API_KEY` (se o painel não gravar, **colar à mão**).
+
+Ative as duas. A tag "Teste Webchat" no lead de teste pula a checagem de horário.
+
+## 6. Testar
+
+Para testar o roteador como aluno: `cd app && node scripts/conversa.mjs "Olá" "Secretaria" "Declarações"` (aluno de teste, só na Iguaçu; para outra faculdade, ajuste o rodapé no script).
 
 1. Abra `https://webchat.engrenatec.com.br/chat`, escolha a faculdade e mande uma mensagem com um CPF de teste válido (ex.: `529.982.247-25`).
 2. No DataCrazy, a conversa deve aparecer na instância nova. Se não aparecer, olhe a aba **Logs** da conexão: o webhook responde 200 mesmo quando rejeita.
-3. Responda pelo painel, com texto e com um arquivo, e veja a resposta chegar no chat.
-4. `GET /admin/status` não deve ter erros novos.
+3. Responda pelo painel, com texto e com um arquivo, e veja a resposta chegar no chat. O cabeçalho do widget deve mostrar "<seu nome> está te atendendo" (até 1 min depois).
+4. Finalize o atendimento no painel: o widget mostra "Atendimento encerrado". Abra outro e encerre pelo botão do widget: a conversa fica finalizada no DataCrazy, com uma anotação interna.
+5. `GET /admin/status` não deve ter erros novos.
 
 Depois do teste, apague o lead de teste no DataCrazy, se tiver sido criado um.

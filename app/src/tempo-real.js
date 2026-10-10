@@ -28,7 +28,20 @@ export function serializarMensagem(m) {
     texto: m.texto,
     anexo: m.anexo_url ? { url: m.anexo_url, tipo: m.anexo_tipo, nome: m.anexo_nome } : null,
     status: m.status,
+    atendimentoId: m.atendimento_id,
     criadaEm: m.created_at,
+  };
+}
+
+export function serializarAtendimento(a) {
+  return {
+    id: a.id,
+    numero: a.numero,
+    status: a.status,
+    atendente: a.atendente,
+    encerradoPor: a.encerrado_por,
+    criadoEm: a.created_at,
+    encerradoEm: a.encerrado_em,
   };
 }
 
@@ -36,12 +49,23 @@ export function serializarMensagem(m) {
 export const publicar = (contactId, mensagemId) =>
   query("select pg_notify($1, $2)", [CANAL, JSON.stringify({ c: contactId, m: mensagemId })]);
 
-async function entregar({ c: contactId, m: mensagemId }) {
+// Mudança no atendimento (atendente, encerramento).
+export const publicarAtendimento = (contactId, atendimentoId) =>
+  query("select pg_notify($1, $2)", [CANAL, JSON.stringify({ c: contactId, a: atendimentoId })]);
+
+async function entregar({ c: contactId, m: mensagemId, a: atendimentoId }) {
   const sockets = conexoes.get(contactId);
   if (!sockets?.size) return;
-  const msg = await umaLinha("select * from mensagens where id = $1", [mensagemId]);
-  if (!msg) return;
-  const dados = JSON.stringify({ tipo: "mensagem", mensagem: serializarMensagem(msg) });
+  let dados;
+  if (atendimentoId) {
+    const a = await umaLinha("select * from atendimentos where id = $1", [atendimentoId]);
+    if (!a) return;
+    dados = JSON.stringify({ tipo: "atendimento", atendimento: serializarAtendimento(a) });
+  } else {
+    const msg = await umaLinha("select * from mensagens where id = $1", [mensagemId]);
+    if (!msg) return;
+    dados = JSON.stringify({ tipo: "mensagem", mensagem: serializarMensagem(msg) });
+  }
   for (const s of sockets) if (s.readyState === 1) s.send(dados);
 }
 
