@@ -7,6 +7,9 @@
  *   <script src="/widget.js" data-modo="pagina" defer></script>
  *
  * Tudo fica dentro de um Shadow DOM para não colidir com o CSS/JS do portal.
+ *
+ * Cada suporte é um "atendimento" (ADR 004): o widget mostra só o atual, o
+ * aluno pode encerrá-lo e consultar os anteriores. No DataCrazy a conversa é uma só.
  */
 (function () {
   "use strict";
@@ -25,7 +28,11 @@
   var estado = {
     aberto: false,
     sessao: null, // { token, faculdade, aluno }
-    mensagens: [], // { id?, clienteId?, direcao, texto, anexo, status, criadaEm }
+    atendimento: null, // { id, numero, status, atendente, ... } ou null = novo, ainda sem mensagens
+    mensagens: [], // do atendimento atual: { id?, clienteId?, direcao, texto, anexo, status, atendimentoId, criadaEm }
+    tela: "atual", // atual | lista | antigo
+    antigo: null, // { atendimento, mensagens } quando tela = antigo
+    confirmandoEncerrar: false,
     ws: null,
     tentativasWs: 0,
     naoLidas: 0,
@@ -83,6 +90,18 @@
     ".msg.atendente{align-self:flex-start;background:#fff;border-bottom-left-radius:4px;box-shadow:0 1px 2px rgba(0,0,0,.08)}" +
     ".msg .meta{display:block;margin-top:4px;font-size:11px;opacity:.7;text-align:right}" +
     ".msg.falha{background:#fee2e2;color:#991b1b}" +
+    ".opcoes{align-self:flex-start;display:flex;flex-wrap:wrap;gap:6px;max-width:90%;margin-top:-2px}" +
+    ".opcao{border:1px solid #1d4ed8;border-radius:999px;padding:7px 12px;background:#fff;color:#1d4ed8;font-size:13px;cursor:pointer;text-align:left}" +
+    ".opcao:hover{background:#eff6ff}.opcao:focus-visible{outline:2px solid #93c5fd}" +
+    ".msg.sistema{align-self:center;max-width:90%;padding:2px 8px;background:transparent;color:#6b7280;font-size:12px;text-align:center}" +
+    ".barra{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:34px;padding:4px 8px;background:#eff6ff;border-bottom:1px solid #dbeafe;font-size:12px;color:#1e3a8a}" +
+    ".barra:empty{display:none}" +
+    ".barra button{border:0;background:transparent;color:#1d4ed8;font-size:12px;font-weight:600;cursor:pointer;padding:5px 8px;border-radius:6px}" +
+    ".barra button:hover{background:#dbeafe}.barra button.perigo{color:#b91c1c}.barra button.perigo:hover{background:#fee2e2}" +
+    ".encerrado{display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px;border-top:1px solid #e5e7eb;background:#fff;font-size:14px;color:#374151}" +
+    ".encerrado button{border:0;border-radius:10px;padding:10px 16px;background:#1d4ed8;color:#fff;font-size:14px;font-weight:600;cursor:pointer}" +
+    ".item{display:block;width:100%;text-align:left;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;background:#fff;cursor:pointer;font-size:13px;color:#111827}" +
+    ".item:hover{border-color:#93c5fd}.item strong{display:block;margin-bottom:2px}.item span{display:block;color:#6b7280;font-size:12px}" +
     ".msg img{display:block;max-width:100%;border-radius:8px;margin-bottom:4px}" +
     ".msg a{color:inherit;text-decoration:underline}" +
     ".rodape{display:flex;gap:6px;align-items:flex-end;padding:10px;border-top:1px solid #e5e7eb;background:#fff}" +
@@ -159,7 +178,7 @@
     return api("/api/sessao", { method: "POST", json: corpo }).then(function (s) {
       estado.sessao = s;
       salvarToken(s.token);
-      el.subtitulo.textContent = s.faculdade.nome;
+      atualizarCabecalho();
       return s;
     });
   }
@@ -243,14 +262,16 @@
     el.corpo.appendChild(form);
   }
 
-  var lista, textarea, botaoEnviar, botaoAnexar, inputArquivo;
+  var barra, lista, rodape, cartaoEncerrado, textarea, botaoEnviar, botaoAnexar, inputArquivo;
 
   function mostrarConversa() {
     limparCorpo();
+    barra = document.createElement("div");
+    barra.className = "barra";
     lista = document.createElement("div");
     lista.className = "lista";
     lista.setAttribute("aria-live", "polite");
-    var rodape = document.createElement("div");
+    rodape = document.createElement("div");
     rodape.className = "rodape";
     rodape.innerHTML =
       '<button class="icone anexar" type="button" aria-label="Anexar arquivo">📎</button>' +
@@ -276,14 +297,155 @@
       inputArquivo.value = "";
     });
 
+    cartaoEncerrado = document.createElement("div");
+    cartaoEncerrado.className = "encerrado";
+    cartaoEncerrado.innerHTML = "<span>Este atendimento foi encerrado.</span>" +
+      '<button type="button">Iniciar novo atendimento</button>';
+    cartaoEncerrado.querySelector("button").addEventListener("click", novoAtendimento);
+
+    el.corpo.appendChild(barra);
     el.corpo.appendChild(lista);
     el.corpo.appendChild(rodape);
+    el.corpo.appendChild(cartaoEncerrado);
     renderizar();
+  }
+
+  // ---------------------------------------------------------- atendimentos ---
+  var ENCERRADO_RECENTE_MS = 30 * 60 * 1000;
+
+  function encerrado() { return estado.atendimento && estado.atendimento.status === "encerrado"; }
+
+  function botao(texto, classe, acao) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.textContent = texto;
+    if (classe) b.className = classe;
+    b.addEventListener("click", acao);
+    return b;
+  }
+
+  function atualizarCabecalho() {
+    if (!estado.sessao) return;
+    var partes = [estado.sessao.faculdade.nome];
+    var a = estado.atendimento;
+    if (estado.tela === "atual" && a) {
+      if (a.status === "encerrado") partes.push("Atendimento encerrado");
+      else if (a.atendente) partes.push(a.atendente + " está te atendendo");
+      else partes.push("Aguardando atendente");
+    } else if (estado.tela === "antigo" && estado.antigo.atendimento) {
+      partes.push("Atendimento " + estado.antigo.atendimento.numero + " de " + data(estado.antigo.atendimento.criadoEm));
+    }
+    el.subtitulo.textContent = partes.join(" · ");
+  }
+
+  function renderizarBarra() {
+    if (!barra) return;
+    barra.innerHTML = "";
+    if (estado.tela !== "atual") {
+      barra.appendChild(botao("← Voltar ao atendimento atual", "", voltarAoAtual));
+      return;
+    }
+    if (estado.confirmandoEncerrar) {
+      var pergunta = document.createElement("span");
+      pergunta.textContent = "Encerrar este atendimento?";
+      var acoes = document.createElement("span");
+      acoes.appendChild(botao("Cancelar", "", function () { estado.confirmandoEncerrar = false; renderizarBarra(); }));
+      acoes.appendChild(botao("Encerrar", "perigo", encerrarAtendimento));
+      barra.appendChild(pergunta);
+      barra.appendChild(acoes);
+      return;
+    }
+    var a = estado.atendimento;
+    var temAnteriores = a && (a.numero > 1 || a.status === "encerrado");
+    barra.appendChild(temAnteriores ? botao("Atendimentos anteriores", "", mostrarLista) : document.createElement("span"));
+    var temMensagens = estado.mensagens.some(function (m) { return m.id && m.direcao !== "sistema"; });
+    if (a && a.status === "aberto" && temMensagens) {
+      barra.appendChild(botao("Encerrar atendimento", "perigo", function () { estado.confirmandoEncerrar = true; renderizarBarra(); }));
+    }
+    if (!barra.querySelector("button")) barra.innerHTML = "";
+  }
+
+  function encerrarAtendimento() {
+    estado.confirmandoEncerrar = false;
+    api("/api/atendimentos/encerrar", { method: "POST", autenticado: true })
+      .then(function (r) { aplicarAtendimento(r.atendimento); })
+      .catch(function (err) {
+        if (err.status === 409) return carregarHistorico();
+        aviso("Não foi possível encerrar agora. Tente novamente.");
+        renderizarBarra();
+      });
+  }
+
+  function novoAtendimento() {
+    estado.atendimento = null;
+    estado.mensagens = [];
+    renderizar();
+    if (textarea) textarea.focus();
+  }
+
+  // Atualização do atendimento vinda da API ou do WebSocket.
+  function aplicarAtendimento(a) {
+    var atual = estado.atendimento;
+    if (atual && atual.id === a.id) {
+      estado.atendimento = Object.assign({}, atual, a);
+    } else if (a.status === "aberto") {
+      // Atendimento novo (aberto pelo aluno ou pelo atendente): troca a tela.
+      estado.atendimento = a;
+      estado.mensagens = estado.mensagens.filter(function (m) { return !m.id || m.atendimentoId === a.id; });
+    } else {
+      return; // encerramento de um atendimento que não está na tela
+    }
+    renderizar();
+  }
+
+  function mostrarLista() {
+    estado.tela = "lista";
+    renderizar();
+    lista.innerHTML = '<div class="vazio">Carregando…</div>';
+    api("/api/atendimentos", { autenticado: true }).then(function (r) {
+      if (estado.tela !== "lista") return;
+      lista.innerHTML = "";
+      r.atendimentos.forEach(function (a) {
+        var item = document.createElement("button");
+        item.type = "button";
+        item.className = "item";
+        var titulo = document.createElement("strong");
+        titulo.textContent = "Atendimento " + a.numero + " · " + data(a.criadoEm) +
+          (a.status === "aberto" ? " · em andamento" : "");
+        var detalhe = document.createElement("span");
+        detalhe.textContent = (a.atendente ? a.atendente + " — " : "") + (a.resumo || "(sem mensagem de texto)");
+        item.appendChild(titulo);
+        item.appendChild(detalhe);
+        item.addEventListener("click", function () {
+          if (estado.atendimento && a.id === estado.atendimento.id) voltarAoAtual();
+          else abrirAntigo(a.id);
+        });
+        lista.appendChild(item);
+      });
+    }).catch(function () { aviso("Não foi possível carregar os atendimentos anteriores."); });
+  }
+
+  function abrirAntigo(id) {
+    api("/api/historico?atendimento=" + encodeURIComponent(id), { autenticado: true }).then(function (r) {
+      estado.tela = "antigo";
+      estado.antigo = r;
+      renderizar();
+    });
+  }
+
+  function voltarAoAtual() {
+    estado.tela = "atual";
+    estado.antigo = null;
+    renderizar();
+    carregarHistorico().catch(function () {});
   }
 
   // ------------------------------------------------------------ mensagens ---
   function hora(iso) {
     try { return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; }
+  }
+  function data(iso) {
+    try { return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }); } catch (e) { return ""; }
   }
 
   function inserirOuAtualizar(m) {
@@ -294,14 +456,29 @@
         return false;
       }
     }
+    // Avisos ("Fulano está te atendendo") vêm com a hora do DataCrazy e podem
+    // pertencer a um ponto anterior da conversa.
+    if (m.direcao === "sistema") {
+      for (var j = 0; j < estado.mensagens.length; j++) {
+        var x = estado.mensagens[j];
+        if (x.id && x.criadaEm > m.criadaEm) { estado.mensagens.splice(j, 0, m); return true; }
+      }
+    }
     estado.mensagens.push(m);
     return true;
   }
 
   function renderizar() {
+    atualizarCabecalho();
+    renderizarBarra();
     if (!lista) return;
+    var tela = estado.tela;
+    rodape.style.display = tela === "atual" && !encerrado() ? "" : "none";
+    cartaoEncerrado.style.display = tela === "atual" && encerrado() ? "" : "none";
+    if (tela === "lista") return; // conteúdo montado por mostrarLista
+    var mensagens = tela === "antigo" ? estado.antigo.mensagens : estado.mensagens;
     lista.innerHTML = "";
-    if (!estado.mensagens.length) {
+    if (!mensagens.length) {
       var vazio = document.createElement("div");
       vazio.className = "vazio";
       var primeiro = estado.sessao ? String(estado.sessao.aluno.nome).split(" ")[0] : "";
@@ -310,8 +487,16 @@
       lista.appendChild(vazio);
       return;
     }
-    estado.mensagens.forEach(function (m) {
+    var ativas = indiceOpcoesAtivas(mensagens);
+    mensagens.forEach(function (m, i) {
       var div = document.createElement("div");
+      var partes = m.direcao === "atendente" ? separarOpcoes(m.texto) : { texto: m.texto, opcoes: [] };
+      if (m.direcao === "sistema") {
+        div.className = "msg sistema";
+        div.textContent = m.texto + " · " + hora(m.criadaEm);
+        lista.appendChild(div);
+        return;
+      }
       div.className = "msg " + m.direcao + (m.status === "falha" ? " falha" : "");
       if (m.anexo) {
         if (/^image\//.test(m.anexo.tipo || "")) {
@@ -328,21 +513,69 @@
           div.appendChild(document.createElement("br"));
         }
       }
-      if (m.texto && !(m.anexo && m.texto === m.anexo.nome)) div.appendChild(document.createTextNode(m.texto));
+      // Opções que não estão ativas continuam visíveis como texto.
+      var corpo = i === ativas ? partes.texto : m.texto;
+      if (corpo && !(m.anexo && corpo === m.anexo.nome)) div.appendChild(document.createTextNode(corpo));
       else if (!m.texto && !m.anexo) div.appendChild(document.createTextNode("📎 carregando anexo…"));
       var meta = document.createElement("span");
       meta.className = "meta";
       meta.textContent = m.status === "enviando" ? "enviando…" : m.status === "falha" ? "não enviada" : hora(m.criadaEm);
       div.appendChild(meta);
       lista.appendChild(div);
+      if (i === ativas) {
+        var opcoes = document.createElement("div");
+        opcoes.className = "opcoes";
+        partes.opcoes.forEach(function (texto) {
+          opcoes.appendChild(botao(texto, "opcao", function () { enviarOpcao(texto); }));
+        });
+        lista.appendChild(opcoes);
+      }
     });
     lista.scrollTop = lista.scrollHeight;
   }
 
+  // Opções de menu: linhas "▸ Opção" no fim da mensagem (o DataCrazy não manda
+  // botões pela Conexão Universal; a automação escreve assim, ADR 004).
+  var MARCA_OPCAO = /^\s*▸\s*/;
+  function separarOpcoes(texto) {
+    var linhas = String(texto || "").split("\n");
+    var opcoes = [];
+    while (linhas.length && MARCA_OPCAO.test(linhas[linhas.length - 1])) {
+      opcoes.unshift(linhas.pop().replace(MARCA_OPCAO, "").trim());
+    }
+    while (linhas.length && !linhas[linhas.length - 1].trim()) linhas.pop();
+    return { texto: linhas.join("\n"), opcoes: opcoes };
+  }
+
+  // Opções só valem na última mensagem da conversa: depois que o aluno ou o
+  // atendente escrevem, o menu anterior vira texto.
+  function indiceOpcoesAtivas(mensagens) {
+    if (estado.tela !== "atual" || encerrado()) return -1;
+    for (var i = mensagens.length - 1; i >= 0; i--) {
+      var m = mensagens[i];
+      if (m.direcao === "sistema") continue;
+      return m.direcao === "atendente" && separarOpcoes(m.texto).opcoes.length ? i : -1;
+    }
+    return -1;
+  }
+
+  function enviarOpcao(texto) {
+    if (textarea) { textarea.value = texto; enviarTexto(); }
+  }
+
+  // Atendimento atual: o aberto ou, se não houver, o último. Encerrado há mais
+  // de 30 min não aparece: o aluno começa direto um novo.
   function carregarHistorico() {
     return api("/api/historico", { autenticado: true }).then(function (r) {
       var pendentes = estado.mensagens.filter(function (m) { return !m.id; });
-      estado.mensagens = r.mensagens.concat(pendentes);
+      var a = r.atendimento;
+      if (a && a.status === "encerrado" && Date.now() - new Date(a.encerradoEm).getTime() > ENCERRADO_RECENTE_MS) {
+        estado.atendimento = null;
+        estado.mensagens = pendentes;
+      } else {
+        estado.atendimento = a;
+        estado.mensagens = r.mensagens.concat(pendentes);
+      }
       renderizar();
     });
   }
@@ -380,6 +613,11 @@
       });
   }
 
+  // Mensagem que chegou pelo WebSocket (ou ack) e é de outro atendimento.
+  function mensagemDeOutroAtendimento(m) {
+    return m.atendimentoId && (!estado.atendimento || m.atendimentoId !== estado.atendimento.id);
+  }
+
   // ------------------------------------------------------------ WebSocket ---
   function conectar() {
     if (!estado.sessao) return;
@@ -395,12 +633,24 @@
         aviso("");
         var fila = estado.filaEnvio; estado.filaEnvio = [];
         fila.forEach(function (p) { ws.send(JSON.stringify(p)); });
+      } else if (dados.tipo === "atendimento") {
+        aplicarAtendimento(dados.atendimento);
       } else if (dados.tipo === "mensagem") {
-        var nova = inserirOuAtualizar(dados.mensagem);
-        if (nova && dados.mensagem.direcao === "atendente" && !estado.aberto) { estado.naoLidas++; atualizarSelo(); }
-        renderizar();
+        var msg = dados.mensagem;
+        if (estado.tela === "antigo" && estado.antigo.atendimento && msg.atendimentoId === estado.antigo.atendimento.id) return;
+        if (mensagemDeOutroAtendimento(msg)) {
+          // Aviso atrasado de um atendimento já encerrado: ignora. Qualquer
+          // outra mensagem só pode ser do atendimento aberto: recarrega.
+          if (msg.direcao !== "sistema") carregarHistorico().catch(function () {});
+          return;
+        }
+        var nova = inserirOuAtualizar(msg);
+        if (nova && msg.direcao === "atendente" && !estado.aberto) { estado.naoLidas++; atualizarSelo(); }
+        if (estado.tela === "atual") renderizar();
       } else if (dados.tipo === "ack") {
         var m = dados.mensagem; m.clienteId = dados.clienteId;
+        // O ack pode chegar antes do aviso do atendimento novo.
+        if (mensagemDeOutroAtendimento(m)) aplicarAtendimento({ id: m.atendimentoId, status: "aberto", numero: 0 });
         // A mensagem pode já ter chegado pelo eco (id), então junta pelos dois lados.
         estado.mensagens = estado.mensagens.filter(function (x) { return !(x.id === m.id && x.clienteId !== m.clienteId); });
         inserirOuAtualizar(m);
@@ -424,7 +674,7 @@
       aviso("Reconectando…");
       var espera = [1000, 2000, 5000, 10000, 20000][Math.min(estado.tentativasWs++, 4)];
       setTimeout(function () {
-        carregarHistorico().catch(function () {}).then(conectar);
+        (estado.tela === "atual" ? carregarHistorico() : Promise.resolve()).catch(function () {}).then(conectar);
       }, espera);
     };
   }

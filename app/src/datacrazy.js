@@ -18,6 +18,9 @@ export async function enviarAoWebhook(faculdade, aluno, mensagem) {
     text: mensagem.texto || mensagem.anexo_nome || "",
     timestamp: Math.floor(new Date(mensagem.created_at).getTime() / 1000),
     fromMe: false,
+    // Lido pela automação como [Message-1]novo_atendimento.
+    novo_atendimento: mensagem.primeira ? "sim" : "nao",
+    com_atendente: mensagem.atendente ? "sim" : "nao",
   };
   if (mensagem.anexo_url) payload.media = { url: mensagem.anexo_url, type: mensagem.anexo_tipo };
 
@@ -104,6 +107,20 @@ export const criarLead = (dados) => rest("POST", "/api/v1/leads", dados);
 export const buscarConversas = async (termo) =>
   (await rest("GET", `/api/v1/conversations?${qs({ take: "5", search: termo })}`)).data || [];
 
+// Devolve { messages, histories }. As mensagens do atendente trazem
+// `attendant.name`/`signature`; `histories` traz entrada e transferência de
+// atendente (`conversation-opened`, `attendant-added`) e `conversation-finished`.
+export const conversaComHistorico = (conversaId, take = 20) =>
+  rest("GET", `/api/v1/conversations/${encodeURIComponent(conversaId)}/messages?${qs({ take: String(take) })}`);
+
 export const mensagensDaConversa = async (conversaId, take = 20) =>
-  (await rest("GET", `/api/v1/conversations/${encodeURIComponent(conversaId)}/messages?${qs({ take: String(take) })}`))
-    .messages || [];
+  (await conversaComHistorico(conversaId, take)).messages || [];
+
+// Anotação interna: só os atendentes veem; não passa pela Conexão Universal
+// (validado em 2026-10-10).
+export const enviarNotaInterna = (conversaId, texto) =>
+  rest("POST", `/api/v1/conversations/${encodeURIComponent(conversaId)}/messages`, { body: texto, isInternal: true });
+
+// Finaliza o atendimento (a "thread"). Não envia nada ao aluno pela conexão.
+export const finalizarConversa = (conversaId) =>
+  rest("POST", `/api/v1/conversations/${encodeURIComponent(conversaId)}/finish`);

@@ -16,7 +16,8 @@ import { listarFaculdades, faculdadePorSlug, faculdadePorRodape, invalidarCacheF
 import { registrar, enfileirar, iniciarConsumidor } from "./fila.js";
 import { vincularLead } from "./leads.js";
 import { registrarMensagemDoAluno, registrarMensagemDoAtendente, jobEnviarMensagem, jobBuscarAnexo } from "./mensagens.js";
-import { adicionarConexao, iniciarOuvinte, serializarMensagem, totalConexoes } from "./tempo-real.js";
+import { adicionarConexao, iniciarOuvinte, serializarMensagem, serializarAtendimento, totalConexoes } from "./tempo-real.js";
+import { encerrarAtendimento, jobFinalizarNoDataCrazy, jobIdentificarAtendente } from "./atendimentos.js";
 
 const raiz = dirname(fileURLToPath(import.meta.url));
 const pastaPublica = join(raiz, "..", "public");
@@ -202,18 +203,50 @@ app.post("/api/sessao", async (req, reply) => {
   };
 });
 
-// Histórico visível neste dispositivo: só a partir da primeira vez que ele abriu o chat.
+// Atendimentos visíveis neste dispositivo: os que tiveram movimento depois da
+// primeira vez que ele abriu o chat (ADR 003). As mensagens seguem a mesma regra.
+const ATENDIMENTO_VISIVEL = "contact_id = $1 and coalesce(encerrado_em, now()) >= $2";
+
+// Mensagens de um atendimento. Sem `atendimento`, devolve o aberto ou, se não
+// houver, o último (o widget mostra "encerrado" e a próxima mensagem abre outro).
 app.get("/api/historico", async (req, reply) => {
   const sessao = await exigirSessao(req, reply);
   if (!sessao) return;
+  const pedido = /^[0-9a-f-]{36}$/.test(req.query.atendimento || "") ? req.query.atendimento : null;
+  const atendimento = await umaLinha(
+    `select * from atendimentos where ${ATENDIMENTO_VISIVEL} and ($3::uuid is null or id = $3)
+     order by (status = 'aberto') desc, numero desc limit 1`,
+    [sessao.contactId, sessao.dispositivoDesde, pedido],
+  );
+  if (!atendimento) return pedido ? reply.code(404).send({ erro: "atendimento_inexistente" }) : { atendimento: null, mensagens: [] };
   const { rows } = await query(
     `select * from (
-       select * from mensagens where contact_id = $1 and created_at >= $2
+       select * from mensagens where atendimento_id = $1 and created_at >= $2
        order by created_at desc limit 200
      ) t order by created_at`,
+    [atendimento.id, sessao.dispositivoDesde],
+  );
+  return { atendimento: serializarAtendimento(atendimento), mensagens: rows.map(serializarMensagem) };
+});
+
+app.get("/api/atendimentos", async (req, reply) => {
+  const sessao = await exigirSessao(req, reply);
+  if (!sessao) return;
+  const { rows } = await query(
+    `select a.*, (select texto from mensagens m where m.atendimento_id = a.id and m.direcao = 'aluno' and m.texto <> ''
+                  order by created_at limit 1) as resumo
+     from atendimentos a where ${ATENDIMENTO_VISIVEL} order by numero desc limit 50`,
     [sessao.contactId, sessao.dispositivoDesde],
   );
-  return { mensagens: rows.map(serializarMensagem) };
+  return { atendimentos: rows.map((a) => ({ ...serializarAtendimento(a), resumo: a.resumo ? a.resumo.slice(0, 80) : null })) };
+});
+
+app.post("/api/atendimentos/encerrar", async (req, reply) => {
+  const sessao = await exigirSessao(req, reply);
+  if (!sessao) return;
+  const a = await encerrarAtendimento(sessao.contactId, "aluno");
+  if (!a) return reply.code(409).send({ erro: "sem_atendimento_aberto" });
+  return { atendimento: serializarAtendimento(a) };
 });
 
 app.post("/api/arquivos", async (req, reply) => {
@@ -344,6 +377,45 @@ app.post("/dc/:slug/send", async (req, reply) => {
   return { ok: true, id: msg.id };
 });
 
+// Eventos enviados por automações do DataCrazy (bloco HTTP), com a mesma
+// X-Api-Key do envio. Hoje: o atendimento foi finalizado lá (atendente, timeout
+// do robô etc.). O body traz ${conversationId} e ${leadId} da automação.
+app.post("/dc/:slug/evento", async (req, reply) => {
+  const faculdade = await faculdadePorSlug(req.params.slug);
+  if (!faculdade || !iguaisSeguro(req.headers["x-api-key"], faculdade.api_key)) {
+    return reply.code(401).send({ ok: false, error: "unauthorized" });
+  }
+  const b = req.body || {};
+  if (b.evento !== "atendimento_finalizado") return reply.code(400).send({ ok: false, error: "evento desconhecido" });
+  const conversa = valorTemplate(b.conversationId);
+  const leadId = valorTemplate(b.leadId);
+
+  let aluno = conversa
+    ? await umaLinha("select contact_id from alunos where faculdade = $1 and dc_conversation_id = $2", [faculdade.slug, conversa])
+    : null;
+  if (!aluno && leadId) {
+    const { rows } = await query("select contact_id from alunos where faculdade = $1 and lead_id = $2", [faculdade.slug, leadId]);
+    if (rows.length === 1) {
+      aluno = rows[0];
+      if (conversa) await query("update alunos set dc_conversation_id = $2 where contact_id = $1", [aluno.contact_id, conversa]);
+    }
+  }
+  if (!aluno) {
+    req.log.warn({ conversa, leadId }, "evento do DataCrazy sem aluno correspondente");
+    return { ok: true, ignorado: true };
+  }
+  // Eco do nosso próprio /finish (o aluno encerrou pelo widget): se ele já abriu
+  // outro atendimento nesse meio-tempo, o eco não pode fechar o novo. O eco
+  // chega em poucos segundos (medido: ~1 s).
+  const eco = await umaLinha(
+    "select 1 from atendimentos where contact_id = $1 and dc_finalizado_em > now() - interval '30 seconds' limit 1",
+    [aluno.contact_id],
+  );
+  if (eco) return { ok: true, ignorado: true };
+  const a = await encerrarAtendimento(aluno.contact_id, "datacrazy");
+  return { ok: true, encerrado: Boolean(a) };
+});
+
 // ------------------------------------------------------------------ admin ---
 
 async function exigirAdmin(req, reply) {
@@ -404,6 +476,8 @@ app.get("/admin/status", async (req, reply) => {
 registrar("vincular_lead", ({ contactId }, log) => vincularLead(contactId, log));
 registrar("enviar_mensagem", jobEnviarMensagem);
 registrar("buscar_anexo", jobBuscarAnexo);
+registrar("finalizar_no_datacrazy", jobFinalizarNoDataCrazy);
+registrar("identificar_atendente", jobIdentificarAtendente);
 
 await migrar(app.log);
 const pararConsumidor = iniciarConsumidor(app.log);

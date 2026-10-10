@@ -6,3 +6,6 @@
 poc/logs/
 node_modules/
 app/data/
+
+# automações geradas com a api_key da faculdade
+datacrazy/gerado/
