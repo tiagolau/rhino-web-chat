@@ -4,6 +4,8 @@ Webchat de suporte para a área do aluno do portal **Eduno** (HotSystems), ligad
 
 > **Começando uma conversa nova?** Leia este arquivo inteiro, depois a [ADR 003](docs/decisions/003-producao-mapeamento-identidade-cpf.md). O histórico das decisões está em `docs/decisions/` (001 → 003).
 
+**Repositório:** https://github.com/tiagolau/rhino-web-chat (privado, branch `main`). Commits só quando o Tiago pedir; para funcionalidade nova, criar branch a partir da `main`. O deploy (`app/deploy/deploy.sh`) envia a pasta local, não o que está no GitHub: confira se está na branch certa antes de publicar.
+
 ## Estado atual (2026-10-10)
 
 - **Em produção** em `https://webchat.engrenatec.com.br` (VPS Mapeamento, stack `webchat`, 2 réplicas + Postgres).
