@@ -85,7 +85,7 @@ export async function jobFinalizarNoDataCrazy({ contactId, atendimentoId, por = 
   if (!a || a.dc_encerramento_concluido_em) return;
   const aluno = await umaLinha("select contact_id, nome, faculdade from alunos where contact_id = $1", [contactId]);
   const faculdade = await faculdadePorSlug(aluno.faculdade);
-  if (faculdade?.fluxo_nativo && a.fluxo_nativo_iniciado && !a.dc_sessao_limpa_em) {
+  if (faculdade?.fluxo_nativo && faculdade.confirmar_encerramento !== false && a.fluxo_nativo_iniciado && !a.dc_sessao_limpa_em) {
     // A opção de controle existe em todos os menus, mas não é exibida ao aluno.
     // Nas esperas terminais por texto, a resposta também encerra a sessão.
     // O callback confirma o fim; HTTP 200 do webhook sozinho não é suficiente.

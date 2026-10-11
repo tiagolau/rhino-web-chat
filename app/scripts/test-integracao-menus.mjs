@@ -23,6 +23,9 @@ Object.assign(process.env, env);
 const recebidas = [];
 let historicoCRM = { messages: [], histories: [] };
 let consultasCRM = 0;
+const notasCRM = [];
+let falharWebhook = false;
+let perderRespostaDaNota = false;
 let liberarEncerramento;
 let avisarControle;
 const controleRecebido = new Promise(resolve => { avisarControle = resolve; });
@@ -36,6 +39,7 @@ const crm = createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
   if (caminho === '/webhook') {
     assert.equal(req.headers['x-signature'], createHmac('sha256', 'segredo-teste').update(bruto).digest('hex'));
+    if (falharWebhook) { res.statusCode = 503; return res.end('{}'); }
     const mensagem = JSON.parse(bruto);
     recebidas.push(mensagem);
     if (mensagem.text.body === 'Atendimento encerrado') {
@@ -52,7 +56,16 @@ const crm = createServer(async (req, res) => {
   if (req.method === 'PATCH' && caminho === '/api/v1/leads/lead-teste') return res.end('{}');
   if (req.method === 'GET' && caminho === '/api/v1/conversations/conversa-teste/messages') {
     consultasCRM++;
-    return res.end(JSON.stringify(historicoCRM));
+    return res.end(JSON.stringify({ ...historicoCRM, messages: [...historicoCRM.messages, ...notasCRM] }));
+  }
+  if (req.method === 'POST' && caminho === '/api/v1/conversations/conversa-teste/messages') {
+    const dados = JSON.parse(bruto);
+    if (dados.isInternal) notasCRM.push({ id: randomUUID(), ...dados });
+    if (perderRespostaDaNota && dados.body.includes('[webchat:')) {
+      perderRespostaDaNota = false;
+      res.statusCode = 503;
+    }
+    return res.end('{}');
   }
   if (req.method === 'POST' && caminho.startsWith('/api/v1/conversations/conversa-teste/')) return res.end('{}');
   res.statusCode = 404;
@@ -177,6 +190,36 @@ try {
   await db.query("update faculdades set menus_crm=false where slug='teste'");
   invalidarCacheFaculdades();
   console.log('OK: botões sem marcação, consulta compartilhada com identificação humana, menus superados/respondidos/encerrados protegidos');
+
+  // O original compartilhado não implementa o ACK particular do v2.
+  await db.query("update faculdades set confirmar_encerramento=false where slug='teste'");
+  invalidarCacheFaculdades();
+  falharWebhook = true;
+  const retida = await enviar(contactId, { texto: 'Mensagem antes de encerrar', clienteId: 'retida-arquivo' }, log);
+  assert.equal(retida.status, 'pendente');
+  await db.query("update mensagens set anexo_url='https://teste.invalid/f.pdf', anexo_nome='f.pdf' where id=$1", [retida.id]);
+  const encerrada = await encerrarAtendimento(contactId, 'aluno');
+  await db.query('update atendimentos set fluxo_nativo_iniciado=true where id=$1', [encerrada.id]);
+  const recebidasAntes = recebidas.length;
+  await jobFinalizarNoDataCrazy({ contactId, atendimentoId: encerrada.id }, log);
+  const estadoEncerrado = await db.umaLinha('select * from atendimentos where id=$1', [encerrada.id]);
+  assert.ok(estadoEncerrado.dc_encerramento_concluido_em);
+  assert.equal(estadoEncerrado.dc_sessao_limpa_em, null, 'finalização REST não inventa ACK da sessão');
+  assert.equal(recebidas.length, recebidasAntes, 'sem mensagem artificial de controle no original');
+  perderRespostaDaNota = true;
+  await assert.rejects(jobEnviarMensagem({ mensagemId: retida.id }), /HTTP 503/);
+  await jobEnviarMensagem({ mensagemId: retida.id });
+  const notasRetidas = notasCRM.filter(n => n.body.includes(`[webchat:${retida.id}]`));
+  assert.equal(notasRetidas.length, 1, 'retry da anotação não duplica após resposta perdida');
+  assert.match(notasRetidas[0].body, /Mensagem antes de encerrar/);
+  assert.match(notasRetidas[0].body, /https:\/\/teste.invalid\/f.pdf/);
+  assert.equal((await db.umaLinha('select * from mensagens where id=$1', [retida.id])).status, 'enviada');
+  assert.equal(recebidas.length, recebidasAntes, 'recuperação de mensagem encerrada não dispara o robô');
+  falharWebhook = false;
+  const novoOriginal = await enviar(contactId, { texto: 'Mensagem no fluxo compartilhado' }, log);
+  assert.equal(novoOriginal.status, 'enviada');
+  assert.equal(recebidas.at(-1).novo_atendimento, 'sim');
+  console.log('OK: original sem ACK encerra pela REST; mensagem arquivada preservada sem reabrir robô; retry não duplica; novo envio chega');
   // Exercita a rota HTTP real: normalização, persistência, menu e rejeição.
   const reserva = createServer();
   await new Promise(resolve => reserva.listen(0, '127.0.0.1', resolve));

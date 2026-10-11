@@ -1,0 +1,48 @@
+{
+  "verificado_em": "2026-10-11T01:53:00Z",
+  "ambiente": "https://webchat.engrenatec.com.br",
+  "branch": "feat/compatibilidade-boas-vindas",
+  "base_commit": "3e4d71823f5be249d213bbb807f2824067c567d6",
+  "fonte_publicada": "base_commit mais a correção local da ADR 010, ainda sem commit",
+  "backup_sql": "/root/backups/webchat/pre-incidente-ack-20261010-224513.sql.gz",
+  "imagem_anterior": "rhino-webchat:pre-incidente-ack-20261010-224513",
+  "replicas": "2/2",
+  "replicas_saudaveis": 2,
+  "jobs_nao_concluidos": 0,
+  "configuracao_iguacu": {
+    "fluxo_nativo": true,
+    "texto_estruturado": true,
+    "menus_crm": true,
+    "confirmar_encerramento": false
+  },
+  "verificacao_recuperacao": {
+    "fonte": "REST GET /api/v1/conversations/{id}/messages?take=1000 e Postgres",
+    "notas_internas": "Uma correspondência por marcador estável; isInternal=true",
+    "mensagens_recebidas": "received=true, isInternal=false, texto igual e mesmo segundo do timestamp original",
+    "texto_do_aluno_publicado_na_evidencia": false
+  },
+  "recuperacao": [
+    {"local_id": "5c58042e-728d-4b87-b7c7-5b8a317bf8fa", "crm_id": "6acaead744229b4c7e4b9990", "atendimento": 10, "forma": "nota_interna", "correspondencias": 1},
+    {"local_id": "1cc06206-9939-40ac-8f16-d3a40ace05ea", "crm_id": "6acaeae19ab27fb81a98cde4", "atendimento": 11, "forma": "nota_interna", "correspondencias": 1},
+    {"local_id": "2094a795-632d-475f-8d79-795955f7f806", "crm_id": "6acaeaf79ab27fb81a991278", "atendimento": 11, "forma": "nota_interna", "correspondencias": 1},
+    {"local_id": "2414d24b-4480-415b-bfe5-7040e3fc4fbb", "crm_id": "6acaeb149ab27fb81a995246", "atendimento": 12, "forma": "nota_interna", "correspondencias": 1},
+    {"local_id": "882c050f-e9d4-4b51-ae37-7e8c9b2cbd83", "crm_id": "6acaeb1e61e83e42d267aaf4", "atendimento": 13, "forma": "nota_interna", "correspondencias": 1},
+    {"local_id": "07cb8a8f-0f0a-4620-85d6-53da0a0287c7", "crm_id": "6acaeb3244229b4c7e4c4ba9", "atendimento": 14, "forma": "nota_interna", "correspondencias": 1},
+    {"local_id": "47f9a721-a73d-4d02-91c4-cd22ffa26c33", "crm_id": "6acaeb5a44229b4c7e4ce155", "atendimento": 14, "forma": "nota_interna", "correspondencias": 1},
+    {"local_id": "8cb156c9-de98-4d63-8481-619b8c1ad82e", "crm_id": "6acaeb8961e83e42d2689293", "atendimento": 14, "forma": "nota_interna", "correspondencias": 1},
+    {"local_id": "2ce59dba-9822-449b-9aac-501a7b3af1f4", "crm_id": "6acaeb9322b5c1ad6ac1bd49", "atendimento": 15, "forma": "mensagem_recebida", "correspondencias": 1},
+    {"local_id": "4d2516ee-20bc-4d44-a6f6-d5695cfb3b73", "crm_id": "6acaeb9302bcca4dcdb60845", "atendimento": 15, "forma": "mensagem_recebida", "correspondencias": 1}
+  ],
+  "teste_original_producao": {
+    "aluno": "ficticio",
+    "atendimento": 26,
+    "sequencia": ["mensagem inicial", "boas-vindas", "menu real", "Secretaria", "anexo e resposta fora do horario", "encerramento pelo aluno"],
+    "mensagens_aluno_enviadas": 2,
+    "status_final": "encerrado",
+    "dc_encerramento_concluido": true,
+    "dc_sessao_limpa": false
+  },
+  "testes": {"unitarios": 17, "ui_local": 9, "ui_widget_publico": 9, "integracao_postgres": "passou"},
+  "automacao_original_alterada_pelo_agente": false,
+  "limite": "Transporte validado; cancelamento de esperas, reinicio e protecao do atendimento humano ainda exigem homologacao do original por Tiago."
+}

@@ -440,7 +440,7 @@ async function exigirAdmin(req, reply) {
 
 app.get("/admin/faculdades", async (req, reply) => {
   if (!(await exigirAdmin(req, reply))) return;
-  const { rows } = await query("select slug, nome, rodape, instance_id, webhook_url, ativo, fluxo_nativo, texto_estruturado, menus_crm, updated_at from faculdades order by slug");
+  const { rows } = await query("select slug, nome, rodape, instance_id, webhook_url, ativo, fluxo_nativo, texto_estruturado, menus_crm, confirmar_encerramento, updated_at from faculdades order by slug");
   return rows;
 });
 
@@ -453,17 +453,19 @@ app.post("/admin/faculdades", async (req, reply) => {
   if (!/^[a-z0-9-]+$/.test(f.slug)) return reply.code(400).send({ erro: "slug só aceita a-z, 0-9 e hífen" });
   if (f.texto_estruturado != null && typeof f.texto_estruturado !== "boolean") return reply.code(400).send({ erro: "texto_estruturado deve ser boolean" });
   if (f.menus_crm != null && typeof f.menus_crm !== "boolean") return reply.code(400).send({ erro: "menus_crm deve ser boolean" });
+  if (f.confirmar_encerramento != null && typeof f.confirmar_encerramento !== "boolean") return reply.code(400).send({ erro: "confirmar_encerramento deve ser boolean" });
   await query(
-    `insert into faculdades (slug, nome, rodape, instance_id, webhook_url, webhook_secret, api_key, ativo, fluxo_nativo, texto_estruturado, menus_crm)
-     values ($1, $2, $3, $4, $5, $6, $7, coalesce($8, true), coalesce($9, false), coalesce($10, false), coalesce($11, false))
+    `insert into faculdades (slug, nome, rodape, instance_id, webhook_url, webhook_secret, api_key, ativo, fluxo_nativo, texto_estruturado, menus_crm, confirmar_encerramento)
+     values ($1, $2, $3, $4, $5, $6, $7, coalesce($8, true), coalesce($9, false), coalesce($10, false), coalesce($11, false), coalesce($12, true))
      on conflict (slug) do update set
        nome = excluded.nome, rodape = excluded.rodape, instance_id = excluded.instance_id,
        webhook_url = excluded.webhook_url, webhook_secret = excluded.webhook_secret,
        api_key = excluded.api_key, ativo = excluded.ativo,
        fluxo_nativo = coalesce($9, faculdades.fluxo_nativo),
        texto_estruturado = coalesce($10, faculdades.texto_estruturado),
-       menus_crm = coalesce($11, faculdades.menus_crm), updated_at = now()`,
-    [f.slug, f.nome, f.rodape, f.instance_id, f.webhook_url, f.webhook_secret, f.api_key, f.ativo ?? null, f.fluxo_nativo ?? null, f.texto_estruturado ?? null, f.menus_crm ?? null],
+       menus_crm = coalesce($11, faculdades.menus_crm),
+       confirmar_encerramento = coalesce($12, faculdades.confirmar_encerramento), updated_at = now()`,
+    [f.slug, f.nome, f.rodape, f.instance_id, f.webhook_url, f.webhook_secret, f.api_key, f.ativo ?? null, f.fluxo_nativo ?? null, f.texto_estruturado ?? null, f.menus_crm ?? null, f.confirmar_encerramento ?? null],
   );
   invalidarCacheFaculdades();
   return { ok: true };

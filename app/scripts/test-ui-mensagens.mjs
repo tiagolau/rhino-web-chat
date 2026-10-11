@@ -143,6 +143,23 @@ try {
   assert.match(await pagina.locator('.msg.atendente').innerText(), /▸ Secretaria/);
   console.log('OK: enriquecimento-tardio-sem-duplicação-e-histórico-legível');
   await pagina.close();
+
+  const paginaFila = await navegador.newPage();
+  await paginaFila.addInitScript(() => localStorage.setItem('rhino_webchat_tokens', JSON.stringify({ pagina: 'teste' })));
+  const retida = { id: 'm-retida', atendimentoId: 'at-fila', direcao: 'aluno', texto: 'Mensagem na fila', status: 'pendente', criadaEm: new Date().toISOString() };
+  let socketFila;
+  await paginaFila.route('**/api/**', rota => rota.fulfill({ json: new URL(rota.request().url()).pathname === '/api/sessao'
+    ? { token: 'teste', aluno: { nome: 'Aluno' }, faculdade: { nome: 'Teste' } }
+    : { atendimento: { id: 'at-fila', numero: 1, status: 'aberto' }, mensagens: [retida] } }));
+  await paginaFila.routeWebSocket('**/ws?*', socket => { socketFila = socket; });
+  await paginaFila.goto(`http://127.0.0.1:${servidor.address().port}`);
+  await paginaFila.getByRole('textbox', { name: 'Mensagem', exact: true }).waitFor();
+  assert.equal(await paginaFila.locator('.msg.aluno .meta').textContent(), 'aguardando envio…');
+  socketFila.send(JSON.stringify({ tipo: 'mensagem', mensagem: { ...retida, status: 'enviada' } }));
+  await paginaFila.waitForFunction(() => document.querySelector('#rhino-webchat').shadowRoot.querySelector('.msg.aluno .meta').textContent !== 'aguardando envio…');
+  assert.equal(await paginaFila.locator('.msg.aluno').count(), 1);
+  console.log('OK: fila-visível-e-confirmação-sem-duplicação');
+  await paginaFila.close();
 } finally {
   await navegador?.close();
   await new Promise(resolve => servidor.close(resolve));

@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { query, umaLinha, pool } from "./db.js";
 import { faculdadePorSlug } from "./faculdades.js";
-import { enviarAoWebhook, mensagensDaConversa } from "./datacrazy.js";
+import { enviarAoWebhook, mensagensDaConversa, enviarNotaInterna } from "./datacrazy.js";
 import { atendimentoAberto, conversaDoAluno, pedirChecagemDoAtendente } from "./atendimentos.js";
 import { enfileirar } from "./fila.js";
 import { publicar, publicarAtendimento } from "./tempo-real.js";
@@ -18,6 +18,7 @@ async function enviarMensagemAoDataCrazy(mensagemId) {
   // falar (ADR 004).
   const m = await umaLinha(
     `select m.*, a.nome, a.faculdade, a.lead_id, at.atendente, at.fluxo_nativo_iniciado,
+            at.status as atendimento_status, at.numero as atendimento_numero,
             not exists (select 1 from mensagens o where o.atendimento_id = m.atendimento_id and o.direcao = 'aluno'
                         and (o.created_at, o.id) < (m.created_at, m.id)) as primeira
      from mensagens m join alunos a on a.contact_id = m.contact_id
@@ -27,22 +28,39 @@ async function enviarMensagemAoDataCrazy(mensagemId) {
   );
   if (!m || m.status === "enviada") return;
   if (!m.lead_id) throw new Error("aguardando vínculo do lead");
+  const anterior = await umaLinha(
+    `select 1 from mensagens where contact_id = $1 and direcao = 'aluno' and status <> 'enviada'
+     and (created_at, id) < (select created_at, id from mensagens where id = $2) limit 1`, [m.contact_id, m.id]);
+  if (anterior) throw new Error("aguardando envio da mensagem anterior");
+  const faculdade = await faculdadePorSlug(m.faculdade);
+  if (!faculdade) throw new Error(`faculdade ${m.faculdade} inativa ou inexistente`);
+  if (m.atendimento_status === "encerrado") {
+    // Preservar mensagens que ficaram na fila antes do encerramento, sem
+    // iniciar um robô de atendimento antigo na conversa atual.
+    const conversa = await conversaDoAluno(m.contact_id);
+    const marcador = `[webchat:${m.id}]`;
+    const jaRegistrada = (await mensagensDaConversa(conversa, 1000))
+      .some(x => x.isInternal && typeof x.body === "string" && x.body.includes(marcador));
+    if (!jaRegistrada) {
+      const anexo = m.anexo_url ? `\n\nAnexo: ${m.anexo_nome || "Arquivo"}\n${m.anexo_url}` : "";
+      await enviarNotaInterna(conversa,
+        `📌 Mensagem do aluno no atendimento ${m.atendimento_numero}, recebida pelo webchat antes do encerramento.\nHorário original: ${new Date(m.created_at).toISOString()}\n\n${m.texto}${anexo}\n\n${marcador}`);
+    }
+    await query("update mensagens set status = 'enviada' where id = $1", [m.id]);
+    await publicar(m.contact_id, m.id);
+    return;
+  }
   const encerrando = await umaLinha(
     `select 1 from atendimentos where contact_id = $1 and status = 'encerrado'
      and dc_encerramento_concluido_em is null limit 1`, [m.contact_id]);
   if (encerrando) throw new Error("aguardando encerramento da sessão anterior");
-  const anterior = await umaLinha(
-    `select 1 from mensagens where contact_id = $1 and direcao = 'aluno' and status <> 'enviada'
-     and (created_at, id) < ($2, $3) limit 1`, [m.contact_id, m.created_at, m.id]);
-  if (anterior) throw new Error("aguardando envio da mensagem anterior");
-  const faculdade = await faculdadePorSlug(m.faculdade);
-  if (!faculdade) throw new Error(`faculdade ${m.faculdade} inativa ou inexistente`);
   // Atendimentos automáticos que estavam abertos na migração iniciam a sessão
   // nativa na próxima mensagem, sem encerrar a conversa nem perder histórico.
   if (faculdade.fluxo_nativo && !m.fluxo_nativo_iniciado && !m.atendente) m.primeira = true;
   await enviarAoWebhook(faculdade, { contact_id: m.contact_id, nome: m.nome }, m);
   await query("update mensagens set status = 'enviada' where id = $1", [mensagemId]);
   if (faculdade.fluxo_nativo) await query("update atendimentos set fluxo_nativo_iniciado = true where id = $1", [m.atendimento_id]);
+  await publicar(m.contact_id, m.id);
 }
 
 // Job de reenvio, para quando o envio direto falha.

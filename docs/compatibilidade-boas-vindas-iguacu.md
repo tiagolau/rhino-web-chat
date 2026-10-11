@@ -1,8 +1,28 @@
 # Compatibilidade do webchat com o boas-vindas da Iguaçu
 
 **Data:** 2026-10-10
-**Estado:** v2 temporário em produção; migração para o original compartilhado pendente de edição exclusiva por Tiago.
-**Decisão:** [ADR 007](decisions/007-boas-vindas-nativo-menus-por-atendimento.md).
+**Estado:** Tiago adicionou o gatilho do webchat e ativou o original; contrato de transporte corrigido pela ADR 010. A homologação completa das esperas/reinício do original continua pendente.
+**Decisões:** [ADR 010](decisions/010-transporte-original-sem-ack-e-recuperacao-da-fila.md) (original em produção) e ADRs 007–009 (preparação do backend).
+
+## Incidente após a ativação do original — ADR 010
+
+Após Tiago adicionar o gatilho e ativar o original, o backend ficou esperando
+um `sessao_encerrada` que esse fluxo não envia. Um encerramento às 22:26 reteve
+dez mensagens posteriores antes do webhook. O JSON `text.body` estava correto.
+Histórico e logs do CRM confirmaram recebimento anterior, inclusive os botões
+originais; não era falha do navegador ou da assinatura.
+
+`confirmar_encerramento=false` separa a finalização REST do protocolo do v2.
+`fluxo_nativo`, `texto_estruturado` e `menus_crm` permanecem habilitados. O
+backend finaliza a thread, sem inventar o ACK nem enviar controle ao original.
+Mensagens de atendimentos já encerrados são recuperadas como notas internas,
+com horário original; as do aberto seguem normalmente. Detalhes, verificações
+e limites estão na [ADR 010](decisions/010-transporte-original-sem-ack-e-recuperacao-da-fila.md).
+
+Essa configuração restaura o transporte; não comprova que `/finish` cancelou
+as esperas do robô. Para habilitar novamente o ACK ou garantir reinício de
+menus, Tiago precisa integrar o encerramento no fluxo. O roteiro abaixo para
+o protocolo estrito permanece como referência, não como requisito do envio.
 
 ## Revisão após correção do fluxo original
 
@@ -21,11 +41,11 @@ Coleta/criação de identidade e Manter Janela permanecem no conjunto original e
 precisam ser avaliados conforme o canal. A mudança de destinos resolve o envio,
 mas não conclui a migração compartilhada.
 
-Na consulta, a entrada `Boas Vindas Iguaçu` estava desativada tanto no painel
+Na consulta anterior à ativação feita por Tiago, a entrada `Boas Vindas Iguaçu` estava desativada tanto no painel
 quanto no export; as 16 subautomações estavam ativas no export. Nenhum gatilho
 foi adicionado e nenhum fluxo foi ativado/desativado nesta revisão. As seções
-seguintes registram a adaptação separada já publicada, que ainda não foi
-substituída pela arquitetura compartilhada.
+seguintes registram também a adaptação separada anteriormente publicada.
+Após essa revisão, Tiago ativou o original; o transporte atual usa a ADR 010.
 
 A [ADR 008](decisions/008-payload-text-body.md) passou a alinhar o payload do
 webchat com o caminho `text.body` do original, sem mudar essas condições.
@@ -48,10 +68,10 @@ do v2 após a publicação, com menus, anexo, encerramento e reinício.
 subautomações. Consultas e exports são permitidos; não editar blocos, adicionar
 gatilhos, ativar ou desativar esse conjunto por automação do agente.
 
-### Configuração que Tiago precisa fazer no CRM
+### Configuração do original sob responsabilidade de Tiago
 
 1. Na entrada original [Boas Vindas Iguaçu](https://crm.datacrazy.io/flow/f7689e27-009d-47cb-afaa-22cfc519c4a0),
-   preparar um gatilho para **Webchat Iguaçu (teste)**, instância
+   O gatilho para **Webchat Iguaçu (teste)** já foi adicionado por Tiago, instância
    `6aca6a619ab27fb81a32e33e`, recebendo o JSON. O texto já chega em `text.body`.
    Conferir o nome do datasource criado pelo gatilho: condições e callbacks
    precisam referenciar o datasource da entrada efetivamente executada, inclusive
@@ -66,8 +86,10 @@ gatilhos, ativar ou desativar esse conjunto por automação do agente.
    a cada mensagem; `only-if-finished-service` sozinho não impediu reentrância.
    Usar o estado atual da conversa; o datasource inicial fica preservado após
    uma espera e não deve representar a escolha seguinte ou o humano atual.
-4. Integrar o encerramento da sessão nativa no caminho webchat. O backend envia
-   `Atendimento encerrado` e espera o callback abaixo. Toda espera acessível no
+4. Para adotar o encerramento estrito da ADR 007, integrar o encerramento da sessão
+   nativa no caminho webchat e só então habilitar `confirmar_encerramento`.
+   Nesse modo o backend envia `Atendimento encerrado` e espera o callback abaixo.
+   No modo atual, com o flag false, esse controle não é enviado. Toda espera acessível no
    webchat precisa consumir esse controle, concluir sua execução e confirmar
    o atendimento de origem. Preservar a experiência WhatsApp ao configurar os
    caminhos por canal. **Somente `/finish` não elimina a espera do robô.**
@@ -86,9 +108,9 @@ gatilhos, ativar ou desativar esse conjunto por automação do agente.
 
 ### Corte e validação
 
-Preparar essas configurações antes do corte. A consulta anterior encontrou a
-entrada original desativada; seu estado poderá ter mudado desde então. A
-ativação do original é feita por Tiago. No corte, coordenar a desativação do
+Tiago já ativou o original. Conferir as configurações restantes na homologação.
+A ativação e as mudanças dos fluxos são feitas exclusivamente por Tiago.
+Coordenar com ele a desativação do
 [v2 temporário](https://crm.datacrazy.io/flow/b87e508a-342f-4a4a-ba9a-40cd86e83cca)
 para impedir dois fluxos respondendo ao mesmo gatilho. Não apagar o v2 antes
 da homologação do compartilhado.
@@ -96,12 +118,14 @@ da homologação do compartilhado.
 Homologar primeiro com o aluno fictício: saudação → Secretaria → Declarações
 e anexo; menus com rótulos iguais em ramos distintos; transferência para humano;
 encerramento com menu aberto e em espera terminal; novo atendimento sem consumir
-uma opção antiga. Conferir no Postgres `dc_sessao_limpa_em` e
-`dc_encerramento_concluido_em`, além do callback e da fila. Regressão do WhatsApp
+uma opção antiga. No modo atual, conferir `dc_encerramento_concluido_em` e a fila;
+`dc_sessao_limpa_em` permanece vazio, pois não houve ACK de limpeza. No modo
+estrito, conferir também esse campo e o callback. Regressão do WhatsApp
 deve usar um contato de teste definido pelo usuário.
 
-Até isso passar, **o compartilhado não está migrado**. A preparação do backend
-e a integração simulada dos botões não equivalem à homologação desse fluxo.
+O compartilhado já recebe mensagens em produção. A homologação completa do
+ciclo de esperas, reinício e atendimento humano continua pendente; a entrega
+das mensagens e os botões não comprovam essas garantias.
 
 ## Diagnóstico
 

@@ -508,7 +508,7 @@
       else if (!m.texto && !m.anexo) div.appendChild(document.createTextNode("Carregando anexo…"));
       var meta = document.createElement("span");
       meta.className = "meta";
-      meta.textContent = m.status === "enviando" ? "enviando…" : m.status === "falha" ? "não enviada" : hora(m.criadaEm);
+      meta.textContent = m.status === "enviando" ? "enviando…" : m.status === "pendente" ? "aguardando envio…" : m.status === "falha" ? "não enviada" : hora(m.criadaEm);
       div.appendChild(meta);
       lista.appendChild(div);
       if (i === ativas) {
