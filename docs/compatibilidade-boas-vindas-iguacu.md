@@ -4,6 +4,42 @@
 **Estado:** Tiago adicionou o gatilho do webchat e ativou o original; contrato de transporte corrigido pela ADR 010. A homologação completa das esperas/reinício do original continua pendente.
 **Decisões:** [ADR 010](decisions/010-transporte-original-sem-ack-e-recuperacao-da-fila.md) (original em produção) e ADRs 007–009 (preparação do backend).
 
+## Homologação operacional — 2026-10-10
+
+O ciclo foi repetido na conexão de teste com o aluno fictício já previsto no
+projeto. O e2e público confirmou sessão, WebSocket, envio de texto e imagem,
+download do anexo (`200 image/png`), histórico e retomada por token. A mensagem
+e o arquivo foram persistidos na conversa Universal; o arquivo foi transferido
+ao CDN e registrado no lead.
+
+No fluxo original, a saudação abriu o menu de setores e a escolha de Secretaria
+foi aceita. O fluxo enviou o aviso visual de feriado e a mensagem de fora do
+horário. O teste ocorreu às 23:44 no horário local; por isso, a rota de
+Declarações e suas esperas terminais não foram alcançadas nesta execução.
+O CRM mostrou uma saudação e um menu persistidos para esse atendimento; as duas
+atualizações de menu vistas no log do script não eram mensagens duplicadas no
+histórico do CRM.
+
+A atribuição do atendimento fictício a um atendente foi confirmada no painel.
+Uma mensagem posterior do aluno chegou ao CRM sem nova resposta automática.
+Uma resposta textual enviada pelo CRM chegou ao widget, e o encerramento pelo
+widget concluiu a conversa no CRM (`finished=true`). O encerramento de outro
+atendimento enquanto o menu estava aberto também foi aceito.
+
+Validação de código: 17 testes unitários, nove cenários de UI simulada e as
+integrações de menus/encerramento, anexos e retenção passaram. Na conferência
+final da produção, não havia jobs pendentes, em execução ou com erro; os sete
+anexos estavam transferidos, sem cópias locais, e não havia mensagens vencidas
+aguardando limpeza. `/health` respondeu saudável e `/chat` respondeu HTTP 200.
+No Swarm, `webchat_app` estava em 2/2 réplicas, `webchat_postgres` em 1/1 e a
+última atualização do serviço constava como concluída.
+
+**Resultado parcial:** transporte, anexo, resposta do atendente, atribuição
+humana e encerramento foram comprovados. A homologação do ramo em horário de
+atendimento, das esperas terminais e do reinício do fluxo original permanece
+pendente. A automação original e suas subautomações não foram alteradas nesta
+execução; qualquer ajuste nelas cabe exclusivamente ao Tiago.
+
 ## Incidente após a ativação do original — ADR 010
 
 Após Tiago adicionar o gatilho e ativar o original, o backend ficou esperando
