@@ -65,7 +65,7 @@ async function entregar({ c: contactId, m: mensagemId, a: atendimentoId }) {
     if (!a) return;
     dados = JSON.stringify({ tipo: "atendimento", atendimento: serializarAtendimento(a) });
   } else {
-    const msg = await umaLinha("select * from mensagens where id = $1", [mensagemId]);
+    const msg = await umaLinha("select * from mensagens where id = $1 and created_at >= now()-interval '72 hours'", [mensagemId]);
     if (!msg) return;
     dados = JSON.stringify({ tipo: "mensagem", mensagem: serializarMensagem(msg) });
   }

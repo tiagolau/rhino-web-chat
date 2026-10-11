@@ -1,0 +1,41 @@
+{
+  "data": "2026-10-10",
+  "urlPublica": "https://webchat.engrenatec.com.br",
+  "branch": "feat/anexos-crm",
+  "replicasApp": "2/2",
+  "replicasPostgres": "1/1",
+  "node": "22.23.3",
+  "sha256ModuloArquivos": "c68fea313abc7effd6eaf116bc9e36690c5b125b545b0afafeb7028dca90c1a5",
+  "migration": "011_anexos_crm.sql",
+  "anexosNoCrm": true,
+  "arquivosAntes": 4,
+  "arquivosDepois": 6,
+  "transferidos": 6,
+  "arquivosLocais": 0,
+  "bytesLocais": 0,
+  "pendenciasAcima72h": 0,
+  "jobsTransferenciaFeitos": 6,
+  "linksAntigosENovosValidos": 6,
+  "integridade": "tamanho e SHA-256",
+  "uploadsSinteticos": [
+    {
+      "mime": "image/png",
+      "bytes": 70,
+      "httpDownload": 200,
+      "httpRedirecionamento": 302
+    },
+    {
+      "mime": "text/plain",
+      "bytes": 66,
+      "httpDownload": 200,
+      "httpRedirecionamento": 302
+    }
+  ],
+  "backup": "/root/backups/webchat/anexos-crm-20261010-231923",
+  "observacoes": [
+    "Sem mensagens enviadas ao aluno no smoke de anexos.",
+    "Histórico e estado operacional continuam no Postgres local.",
+    "Cópias com transferência não confirmada são preservadas; 72h não é prazo de descarte cego.",
+    "Commit e novo deploy autorizados por Tiago."
+  ]
+}

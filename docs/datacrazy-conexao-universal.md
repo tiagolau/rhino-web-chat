@@ -153,6 +153,28 @@ Contexto: [ADR 004](decisions/004-atendimentos-encerramento-atendente-setores.md
 - **`thread-finished-trigger`** com a instância do webchat dispara quando o atendente finaliza, quando uma automação executa `finish-conversation-action` e quando o webchat chama o `/finish` (o eco chega em ~0,2 s). No bloco HTTP dele, `${conversationId}` e `${leadId}` chegam preenchidos.
 - `change-conversation-department-action`, `add-tag-action`, `lead-has-tag-condition`, `lead-exists-condition`, `{Primeiro nome do lead|leadFirstName}` e `send-file-message` (vai pelo Endpoint Adicional "Anexos") funcionam normalmente.
 
+## Upload para o armazenamento do CRM (validado em 2026-10-10)
+
+O upload do painel foi identificado no código JavaScript servido pelo CRM e testado com a mesma `DATACRAZY_API_KEY_RJGLOBAL` usada pelo backend, sem token de sessão do navegador. Isso complementa a ADR 003: a Conexão Universal continua guardando apenas URLs, mas existe uma rota interna separada capaz de hospedar o conteúdo no DataCrazy.
+
+1. `POST https://crm.g1.datacrazy.io/api/crm/files/upload/file/lead-attachments?sourceId=<leadId>` com `Authorization: Bearer <chave da API>`, User-Agent de navegador e multipart/form-data, campo `file`.
+2. Resposta HTTP 201: `{ "url": "https://g1cdn1.datacrazy.io/<tenant>/lead-attachments/<id>" }`.
+3. `POST https://api.g1.datacrazy.io/api/v1/leads/<leadId>/attachments` com `attachmentUrl` retornada, `fileName`, `fileSize` **numérico** e `description` registra o anexo no lead. O exemplo da documentação pública usa string para `fileSize`, mas o teste retornou erro de validação; inteiro funcionou.
+
+### Evidência
+
+- O anexo inserido por Tiago no lead Tiago Lau Chaves foi encontrado no CDN do CRM; GET HTTP 200, image/jpeg, 640.067 bytes, tamanho igual ao registro.
+- Upload de TXT sintético de 68 bytes no lead fictício Aluno Teste Webchat (`eb6b57c3-fb5f-4af1-bfb4-d92d44e6d28d`) retornou 201 com a chave de API.
+- Download da URL do CDN sem autenticação retornou 200 e SHA-256 idêntico ao conteúdo enviado.
+- Registro do anexo retornou 201; GET da lista confirmou ID e URL persistidos. Anexo de prova: `2d83d93d-eb1a-4cc0-b70b-42ea5469deb3`, nome `validacao-upload-webchat.txt`, sem dados pessoais. Mantido como evidência.
+- O teste anterior com URL externa no endpoint público de anexos devolveu a mesma URL; esse endpoint sozinho não demonstrou cópia do arquivo.
+
+### Limites da conclusão
+
+Upload automático para o CRM é tecnicamente viável com a chave atual do tenant. A rota é interna, identificada no painel, e não consta como upload binário na documentação pública consultada. Não foram homologados limites de tamanho, formatos adicionais, rate limit, quotas do plano ou retenção do CDN. A validação inicial não alterou a produção. Posteriormente, a [ADR 011](decisions/011-anexos-no-cdn-datacrazy.md) integrou e publicou a transferência: cópias confirmadas são removidas logo após o registro no lead. A retenção de 72 horas do banco não foi implementada.
+
+Na implementação futura, confirmar upload e integridade antes de liberar a cópia local. Preservar as URLs `/f/` já enviadas ao CRM, migrando sua resolução antes de apagar anexos antigos. Manter credenciais somente no servidor e utilizar o limitador existente para as chamadas de registro de anexos. A validação de upload não resolve, por si só, a retenção do espelho de mensagens e do estado operacional.
+
 ## Lacunas da extração
 
 - Campos extras de **Bearer Token** não confirmados.

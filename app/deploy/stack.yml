@@ -21,6 +21,9 @@ services:
       CPF_ENC_KEY: ${CPF_ENC_KEY:?defina CPF_ENC_KEY}
       DATACRAZY_API_BASE: ${DATACRAZY_API_BASE:-https://api.g1.datacrazy.io}
       DATACRAZY_API_TOKEN: ${DATACRAZY_API_TOKEN:?defina DATACRAZY_API_TOKEN}
+      DATACRAZY_UPLOAD_BASE: ${DATACRAZY_UPLOAD_BASE:-https://crm.g1.datacrazy.io}
+      DATACRAZY_CDN_BASE: ${DATACRAZY_CDN_BASE:-https://g1cdn1.datacrazy.io}
+      ANEXOS_NO_CRM: ${ANEXOS_NO_CRM:-false}
       DC_REST_PER_MINUTE: ${DC_REST_PER_MINUTE:-10}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       FILES_DIR: /data/files
@@ -30,7 +33,7 @@ services:
       ADMIN_API_KEY: ${ADMIN_API_KEY:?defina ADMIN_API_KEY}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
-      # Anexos dos alunos: o DataCrazy guarda só a URL, então este volume precisa de backup.
+      # Anexos aguardando transferência/verificação no CRM; precisa de backup.
       - webchat_files:/data/files
     networks:
       - interna

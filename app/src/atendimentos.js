@@ -168,7 +168,8 @@ export async function jobIdentificarAtendente({ atendimentoId, mensagemId }) {
 export async function jobSincronizarMenu({ mensagemId }) {
   const msg = await umaLinha(
     `select m.* from mensagens m join atendimentos at on at.id=m.atendimento_id
-     where m.id=$1 and at.status='aberto' and at.atendente is null and m.direcao='atendente' and m.menu is null
+     where m.id=$1 and m.created_at >= now()-interval '72 hours'
+     and at.status='aberto' and at.atendente is null and m.direcao='atendente' and m.menu is null
      and not exists (select 1 from mensagens o where o.atendimento_id=m.atendimento_id
        and o.direcao='atendente' and (o.created_at,o.id)>(m.created_at,m.id))`, [mensagemId]);
   if (!msg) return;

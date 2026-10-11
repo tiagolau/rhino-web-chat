@@ -2,7 +2,7 @@
 
 Webchat de suporte para a área do aluno do portal **Eduno** (HotSystems), ligado ao **DataCrazy CRM** do grupo **RJ Global** pela **Conexão Universal**. O DataCrazy é a caixa de atendimento e a base de leads; o webchat é só mais um canal, igual ao WhatsApp.
 
-> **Começando uma conversa nova?** Leia este arquivo inteiro, depois as ADRs [003](docs/decisions/003-producao-mapeamento-identidade-cpf.md), [007](docs/decisions/007-boas-vindas-nativo-menus-por-atendimento.md), [008](docs/decisions/008-payload-text-body.md), [009](docs/decisions/009-menus-do-crm-sem-alterar-fluxo-original.md) e [010](docs/decisions/010-transporte-original-sem-ack-e-recuperacao-da-fila.md). O histórico das decisões está em `docs/decisions/` (001 → 010).
+> **Começando uma conversa nova?** Leia este arquivo inteiro, depois as ADRs [003](docs/decisions/003-producao-mapeamento-identidade-cpf.md), [007](docs/decisions/007-boas-vindas-nativo-menus-por-atendimento.md), [008](docs/decisions/008-payload-text-body.md), [009](docs/decisions/009-menus-do-crm-sem-alterar-fluxo-original.md) e [010](docs/decisions/010-transporte-original-sem-ack-e-recuperacao-da-fila.md). Leia também as ADRs [011](docs/decisions/011-anexos-no-cdn-datacrazy.md) (upload no CDN) e [012](docs/decisions/012-retencao-historico-72-horas.md) (retenção de 72h). O histórico das decisões está em `docs/decisions/` (001 → 012).
 
 **Repositório:** https://github.com/tiagolau/rhino-web-chat (privado, branch `main`). Commits só quando o Tiago pedir; para funcionalidade nova, criar branch a partir da `main`. O deploy (`app/deploy/deploy.sh`) envia a pasta local, não o que está no GitHub: confira se está na branch certa antes de publicar.
 
@@ -17,14 +17,18 @@ Webchat de suporte para a área do aluno do portal **Eduno** (HotSystems), ligad
 - **Boas-vindas original:** só Tiago pode alterar esse fluxo e suas subautomações, inclusive gatilhos e ativação/desativação. Tiago adicionou o gatilho do webchat e ativou o original após o commit `3e4d718`. O original não implementa o ACK do v2; usar `confirmar_encerramento=false` (ADR 010). A homologação completa do ciclo do robô continua pendente em [compatibilidade](docs/compatibilidade-boas-vindas-iguacu.md).
 - **ADR 009 em produção:** `iguacu.menus_crm=true`; o backend recupera botões reais pela REST sem exigir `▸` no original. Prova controlada no aluno fictício (atendimento 25) confirmou persistência, atualização por WebSocket, seleção e encerramento. O original ainda não está homologado no webchat.
 
+- **ADR 011 em produção:** anexos dos alunos transferidos ao CDN do DataCrazy, com verificação de tamanho/SHA-256 e registro no lead antes de remover a cópia local. Seis arquivos migrados/validados; volume de anexos com zero arquivos após a validação. O histórico de mensagens continua no Postgres local, com janela de 72 horas (ADR 012).
+
+- **Retenção (ADR 012):** histórico/API/envio limitados a 72h; exclusão física na subida e a cada minuto, com aviso para pendências vencidas. Estado mínimo de atendimento preserva a continuidade do robô. Backups locais do webchat também expiram após 72h.
+
 ## Próximos passos (em ordem)
 
 1. **Conexões definitivas por faculdade** (Iguaçu, Facuvale, Faculeste, Educaminas, FAME). Passo a passo em [docs/faculdade-nova.md](docs/faculdade-nova.md).
-2. **Backup periódico** dos volumes `webchat_files` e `webchat_pg`. Foi feito dump pontual antes da ADR 007; ainda falta rotina de backup.
+2. **Backup periódico** do `webchat_pg` e dos anexos pendentes no `webchat_files`. Foi feito dump pontual antes da ADR 007; ainda falta rotina de backup.
 3. **Distribuição:** linha do widget no template do Eduno (pedir à HotSystems) e/ou divulgar `https://webchat.engrenatec.com.br/chat`.
 4. **Limpar os testes** depois da Iguaçu definitiva: conexão "Webchat Iguaçu (teste)", as automações dela (boas-vindas, roteador legado, atendimento finalizado e POCs desativadas), lead "Aluno Teste Webchat" (`eb6b57c3-fb5f-4af1-bfb4-d92d44e6d28d`) e, se não for mais usada, a tag "Teste Webchat".
 
-Ideias levantadas, não priorizadas: painel administrativo web (hoje só a API `/admin`), retenção automática de mensagens e anexos (12 meses, ADR 002), horário de atendimento e mensagem fora do horário no widget.
+Ideias levantadas, não priorizadas: painel administrativo web (hoje só a API `/admin`), horário de atendimento e mensagem fora do horário no widget.
 
 ## Restrições do Tiago (não reabrir)
 
@@ -75,7 +79,9 @@ Portal Eduno ── widget.js ──(HTTPS + WebSocket)──► webchat-api (2 
 - **CPF:** no banco só o hash (`cpf_hash`) e a cópia cifrada AES-GCM (`cpf_cifrado`, para gravar no `taxId` do lead). **Nunca em logs.** `CPF_PEPPER` e `CPF_ENC_KEY` não podem mudar depois de em uso.
 - **Vínculo de lead** (`src/leads.js`): `filter[taxId]` (11 dígitos → formatado → 10 dígitos); depois `search=<celular>` com filtro local por DDD + 8 dígitos, sem vincular se o lead tiver outro CPF; `PATCH contacts` é **aditivo**.
 - **REST do DataCrazy:** só pelo limitador de `src/datacrazy.js` (10 req/min por réplica). Histórico vem do espelho local, nunca da REST.
-- **Anexos do aluno:** volume da stack com URL permanente e impossível de adivinhar (`/f/<token>/<nome>`), porque o DataCrazy guarda só a URL. Anexos do atendente chegam pelo Endpoint Adicional "Anexos"; se a mensagem vier vazia, o job `buscar_anexo` busca o arquivo pela REST (fallback).
+- **Anexos do aluno (ADR 011):** `ANEXOS_NO_CRM=true` transfere pelo job `transferir_arquivo` ao CDN do CRM, verifica tamanho/SHA-256, registra no lead e só então remove a cópia local. O volume serve como temporário/fallback; `/f/<token>/<nome>` redireciona arquivos verificados e preserva links antigos. Varredura recupera anexos antigos e retries esgotados. `/admin/status` informa bytes locais e pendências acima de 72 horas; não apagar arquivos não confirmados por idade. Anexos do atendente chegam pelo Endpoint Adicional "Anexos"; `buscar_anexo` é o fallback REST.
+- **Upload no CDN do CRM (2026-10-10):** a rota interna `POST https://crm.g1.datacrazy.io/api/crm/files/upload/file/lead-attachments?sourceId=<leadId>` aceita a chave REST atual, multipart campo `file`, e retorna URL do CDN. Registrar depois em `/api/v1/leads/<leadId>/attachments`, com `fileSize` inteiro. TXT sintético: upload 201, download 200 com SHA-256 igual e registro persistido no lead fictício. Contrato, evidência e limitações em [docs/datacrazy-conexao-universal.md](docs/datacrazy-conexao-universal.md). Integração na ADR 011; manter o suporte de redirecionamento mesmo ao desabilitar novas transferências. A rota interna não tem contrato público de quotas/retenção homologado.
+- **Histórico local (ADR 012):** `src/retencao.js` limpa a janela de 72h; mensagens vencidas, inclusive pendentes, deixam de ser exibidas/enviadas e são apagadas. `primeira_mensagem_id` no atendimento conserva a condição de primeira entrada sem guardar o conteúdo antigo. Menus usam FK com `ON DELETE SET NULL`. `/admin/status.retencao` mostra atrasos da limpeza. Cron `webchat-retencao-backups` aplica 72h aos snapshots locais. Metadados de identidade/arquivos/atendimentos permanecem.
 - **Migrations:** novo arquivo `src/migrations/NNN_nome.sql`, aplicado na subida com advisory lock. Nunca editar uma migration já aplicada.
 - **Jobs:** `registrar("tipo", fn)` em `server.js` + `enfileirar("tipo", payload, { chave })` (a chave deduplica).
 - Código e comentários em português, no estilo dos arquivos existentes; front-end do widget em JS puro (ES5) dentro de Shadow DOM.
@@ -95,7 +101,7 @@ Portal Eduno ── widget.js ──(HTTPS + WebSocket)──► webchat-api (2 
 
 - `app/`: backend em produção (Node 22, Fastify, `@fastify/websocket`, `pg`).
   - `src/server.js`: rotas (`/api/sessao`, `/api/historico`, `/api/atendimentos`, `/api/atendimentos/encerrar`, `/api/arquivos`, `/ws`, `/f/:token/:nome`, `/dc/:slug/send`, `/dc/:slug/evento`, `/admin/*`).
-  - `src/leads.js` (vínculo), `src/atendimentos.js` (abrir/encerrar, atendente), `src/fila.js` (fila no Postgres), `src/tempo-real.js` (`LISTEN/NOTIFY`), `src/mensagens.js`, `src/datacrazy.js`, `src/identidade.js` (CPF, telefone, token), `src/faculdades.js`.
+  - `src/leads.js` (vínculo), `src/atendimentos.js` (abrir/encerrar, atendente), `src/fila.js` (fila no Postgres), `src/tempo-real.js` (`LISTEN/NOTIFY`), `src/mensagens.js`, `src/datacrazy.js`, `src/identidade.js` (CPF, telefone, token), `src/faculdades.js`, `src/arquivos-crm.js` (transferência e verificação de anexos).
   - `public/widget.js` (modo portal ou `data-modo="pagina"`), `public/chat.html`.
   - `src/migrations/`, `test/` (unitários), `scripts/e2e.mjs`, `scripts/conversa.mjs` (conversa como aluno de teste, para testar o roteador) e `scripts/ouvir-atendente.mjs`.
   - `deploy/stack.yml`, `deploy/deploy.sh`; segredos em `deploy/.env.production` (600, **não versionado**).
@@ -115,6 +121,12 @@ cd app && npx playwright install chromium && npm run test:ui
 
 # integração com Postgres real descartável e CRM simulado
 cd app && node scripts/test-integracao-menus.mjs
+
+# anexos com Postgres descartável e CRM/CDN simulados
+cd app && node scripts/test-integracao-arquivos.mjs
+
+# retenção de 72h, expiração e continuidade com Postgres descartável
+cd app && node scripts/test-integracao-retencao.mjs
 
 # dev local (Postgres local `rhino_webchat`; app/.env não versionado, ver app/.env.example)
 cd app && npm install --cache /tmp/npm-cache-rhino && node --env-file=.env src/server.js

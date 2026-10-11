@@ -19,6 +19,8 @@ import { registrarMensagemDoAluno, registrarMensagemDoAtendente, jobEnviarMensag
 import { adicionarConexao, iniciarOuvinte, serializarMensagem, serializarAtendimento, totalConexoes } from "./tempo-real.js";
 import { encerrarAtendimento, jobFinalizarNoDataCrazy, jobIdentificarAtendente, jobSincronizarMenu } from "./atendimentos.js";
 import { lerTexto } from "./payload.js";
+import { jobTransferirArquivo, iniciarTransferencias } from "./arquivos-crm.js";
+import { iniciarRetencao } from "./retencao.js";
 
 const raiz = dirname(fileURLToPath(import.meta.url));
 const pastaPublica = join(raiz, "..", "public");
@@ -206,7 +208,7 @@ app.post("/api/sessao", async (req, reply) => {
 
 // Atendimentos visíveis neste dispositivo: os que tiveram movimento depois da
 // primeira vez que ele abriu o chat (ADR 003). As mensagens seguem a mesma regra.
-const ATENDIMENTO_VISIVEL = "contact_id = $1 and coalesce(encerrado_em, now()) >= $2";
+const ATENDIMENTO_VISIVEL = "contact_id = $1 and coalesce(encerrado_em, now()) >= greatest($2, now()-interval '72 hours')";
 
 // Mensagens de um atendimento. Sem `atendimento`, devolve o aberto ou, se não
 // houver, o último (o widget mostra "encerrado" e a próxima mensagem abre outro).
@@ -222,7 +224,7 @@ app.get("/api/historico", async (req, reply) => {
   if (!atendimento) return pedido ? reply.code(404).send({ erro: "atendimento_inexistente" }) : { atendimento: null, mensagens: [] };
   const { rows } = await query(
     `select * from (
-       select * from mensagens where atendimento_id = $1 and created_at >= $2
+       select * from mensagens where atendimento_id = $1 and created_at >= greatest($2, now()-interval '72 hours')
        order by created_at desc limit 200
      ) t order by created_at`,
     [atendimento.id, sessao.dispositivoDesde],
@@ -235,6 +237,7 @@ app.get("/api/atendimentos", async (req, reply) => {
   if (!sessao) return;
   const { rows } = await query(
     `select a.*, (select texto from mensagens m where m.atendimento_id = a.id and m.direcao = 'aluno' and m.texto <> ''
+                  and m.created_at >= now()-interval '72 hours'
                   order by created_at limit 1) as resumo
      from atendimentos a where ${ATENDIMENTO_VISIVEL} order by numero desc limit 50`,
     [sessao.contactId, sessao.dispositivoDesde],
@@ -264,19 +267,30 @@ app.post("/api/arquivos", async (req, reply) => {
   const nome = (parte.filename || "arquivo").replace(/[\\/\x00-\x1f]/g, "_").slice(0, 150);
   await mkdir(config.filesDir, { recursive: true });
   const destino = join(config.filesDir, token);
-  await pipeline(parte.file, createWriteStream(destino));
+  try {
+    await pipeline(parte.file, createWriteStream(destino));
+  } catch (err) {
+    await rm(destino, { force: true });
+    throw err;
+  }
   if (parte.file.truncated) {
     await rm(destino, { force: true });
     return reply.code(413).send({ erro: "arquivo_grande", limiteMb: config.maxUploadMb });
   }
   const { size } = await stat(destino);
-  await query("insert into arquivos (token, contact_id, nome, mime, tamanho) values ($1, $2, $3, $4, $5)", [
-    token,
-    sessao.contactId,
-    nome,
-    parte.mimetype,
-    size,
-  ]);
+  try {
+    await query("insert into arquivos (token, contact_id, nome, mime, tamanho) values ($1, $2, $3, $4, $5)", [
+      token,
+      sessao.contactId,
+      nome,
+      parte.mimetype,
+      size,
+    ]);
+  } catch (err) {
+    await rm(destino, { force: true });
+    throw err;
+  }
+  if (config.anexosNoCrm) await enfileirar("transferir_arquivo", { token }, { chave: token });
   return { token, nome, tipo: parte.mimetype, tamanho: size };
 });
 
@@ -285,6 +299,7 @@ app.get("/f/:token/:nome", async (req, reply) => {
   if (!/^[A-Za-z0-9_-]{43}$/.test(req.params.token)) return reply.code(404).send();
   const arq = await umaLinha("select * from arquivos where token = $1", [req.params.token]);
   if (!arq) return reply.code(404).send();
+  if (arq.crm_verificado_em) return reply.header("Cache-Control", "private, no-store").redirect(arq.crm_url);
   const inline = /^(image|audio|video)\//.test(arq.mime) || arq.mime === "application/pdf";
   return reply
     .header("Content-Type", arq.mime)
@@ -473,10 +488,18 @@ app.post("/admin/faculdades", async (req, reply) => {
 
 app.get("/admin/status", async (req, reply) => {
   if (!(await exigirAdmin(req, reply))) return;
-  const [jobs, alunos, hoje] = await Promise.all([
+  const [jobs, alunos, hoje, arquivos, retencao] = await Promise.all([
     query("select tipo, status, count(*)::int as n from jobs group by 1, 2 order by 1, 2"),
     query("select lead_status, count(*)::int as n from alunos group by 1"),
     query("select direcao, status, count(*)::int as n from mensagens where created_at > now() - interval '24 hours' group by 1, 2"),
+    query(`select count(*)::int as total,
+      count(*) filter (where local_removido_em is not null)::int as transferidos,
+      count(*) filter (where local_removido_em is null)::int as locais,
+      count(*) filter (where local_removido_em is null and created_at < now() - interval '72 hours')::int as "locaisMaisDe72h",
+      coalesce(sum(tamanho) filter (where local_removido_em is null),0)::bigint as "bytesLocais" from arquivos`),
+    query(`select 72 as "horasHistorico", 60 as "intervaloLimpezaSegundos",
+      count(*) filter(where created_at < now()-interval '72 hours')::int as "mensagensExpiradasAguardandoLimpeza",
+      count(*)::int as "mensagensLocais" from mensagens`),
   ]);
   const errosRecentes = await query(
     "select id, tipo, tentativas, erro, updated_at from jobs where status = 'erro' order by updated_at desc limit 20",
@@ -486,6 +509,8 @@ app.get("/admin/status", async (req, reply) => {
     jobs: jobs.rows,
     alunos: alunos.rows,
     mensagens24h: hoje.rows,
+    arquivos: { habilitado: config.anexosNoCrm, ...arquivos.rows[0] },
+    retencao: retencao.rows[0],
     errosRecentes: errosRecentes.rows,
   };
 });
@@ -498,15 +523,20 @@ registrar("buscar_anexo", jobBuscarAnexo);
 registrar("finalizar_no_datacrazy", jobFinalizarNoDataCrazy);
 registrar("identificar_atendente", jobIdentificarAtendente);
 registrar("sincronizar_menu", jobSincronizarMenu);
+registrar("transferir_arquivo", jobTransferirArquivo);
 
 await migrar(app.log);
 const pararConsumidor = iniciarConsumidor(app.log);
 const pararOuvinte = iniciarOuvinte(app.log);
+const pararTransferencias = iniciarTransferencias(app.log);
+const pararRetencao = iniciarRetencao(app.log);
 
 async function encerrar(sinal) {
   app.log.info({ sinal }, "encerrando");
   pararConsumidor();
   pararOuvinte();
+  pararTransferencias();
+  pararRetencao();
   await app.close();
   await pool.end();
   process.exit(0);

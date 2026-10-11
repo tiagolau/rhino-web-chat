@@ -92,6 +92,38 @@ export const atualizarLead = (id, campos) => rest("PATCH", `/api/v1/leads/${enco
 
 export const criarLead = (dados) => rest("POST", "/api/v1/leads", dados);
 
+// Rota interna usada pelo painel, homologada com a chave REST do tenant.
+// Upload e registro também consomem o orçamento por réplica.
+export async function subirArquivoNoCrm(leadId, conteudo, nome, mime) {
+  await pegarFicha();
+  const formulario = new FormData();
+  formulario.append("file", new Blob([conteudo], { type: mime }), nome);
+  const res = await fetch(`${config.dcUploadBase}/api/crm/files/upload/file/lead-attachments?${qs({ sourceId: leadId })}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.dcApiToken}`, "User-Agent": UA },
+    body: formulario,
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) throw new Error(`upload DataCrazy HTTP ${res.status}`);
+  const dados = await res.json();
+  validarUrlDoCdn(dados.url);
+  return dados.url;
+}
+
+export function validarUrlDoCdn(url) {
+  const destino = new URL(url);
+  if (destino.origin !== new URL(config.dcCdnBase).origin || destino.username || destino.password ||
+      !/^\/[^/]+\/lead-attachments\/[^/]+$/.test(destino.pathname)) {
+    throw new Error("URL de anexo fora do CDN esperado");
+  }
+}
+
+export const listarAnexosDoLead = async (leadId) =>
+  (await rest("GET", `/api/v1/leads/${encodeURIComponent(leadId)}/attachments?${qs({ take: "1000" })}`)).data || [];
+
+export const anexarArquivoAoLead = (leadId, arquivo) =>
+  rest("POST", `/api/v1/leads/${encodeURIComponent(leadId)}/attachments`, arquivo);
+
 // `search` com o contactId devolve a conversa daquele contato (os filtros
 // `filter[...]` de conversa são ignorados pela API).
 export const buscarConversas = async (termo) =>

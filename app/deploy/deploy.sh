@@ -29,6 +29,9 @@ echo "==> build e deploy"
 "${SSH[@]}" bash -s <<'REMOTO'
 set -euo pipefail
 cd /root/apps/webchat
+install -m 700 deploy/limpar-backups.sh /usr/local/sbin/webchat-limpar-backups
+printf '%s\n' '* * * * * root /usr/local/sbin/webchat-limpar-backups' > /etc/cron.d/webchat-retencao-backups
+chmod 644 /etc/cron.d/webchat-retencao-backups
 docker build -q -t rhino-webchat:latest . >/dev/null
 set -a; . /root/stacks/webchat.env; set +a
 docker stack deploy -c /root/stacks/webchat.yaml webchat >/dev/null

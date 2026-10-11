@@ -19,17 +19,17 @@ async function enviarMensagemAoDataCrazy(mensagemId) {
   const m = await umaLinha(
     `select m.*, a.nome, a.faculdade, a.lead_id, at.atendente, at.fluxo_nativo_iniciado,
             at.status as atendimento_status, at.numero as atendimento_numero,
-            not exists (select 1 from mensagens o where o.atendimento_id = m.atendimento_id and o.direcao = 'aluno'
-                        and (o.created_at, o.id) < (m.created_at, m.id)) as primeira
+            at.primeira_mensagem_id = m.id as primeira
      from mensagens m join alunos a on a.contact_id = m.contact_id
      left join atendimentos at on at.id = m.atendimento_id
-     where m.id = $1`,
+     where m.id = $1 and m.created_at >= now() - interval '72 hours'`,
     [mensagemId],
   );
   if (!m || m.status === "enviada") return;
   if (!m.lead_id) throw new Error("aguardando vínculo do lead");
   const anterior = await umaLinha(
     `select 1 from mensagens where contact_id = $1 and direcao = 'aluno' and status <> 'enviada'
+     and created_at >= now() - interval '72 hours'
      and (created_at, id) < (select created_at, id from mensagens where id = $2) limit 1`, [m.contact_id, m.id]);
   if (anterior) throw new Error("aguardando envio da mensagem anterior");
   const faculdade = await faculdadePorSlug(m.faculdade);
@@ -89,7 +89,7 @@ export async function registrarMensagemDoAluno(contactId, { texto, arquivoToken,
     await cliente.query("select contact_id from alunos where contact_id = $1 for update", [contactId]);
     if (clienteId) {
       const { rows: [repetida] } = await cliente.query(
-        "select * from mensagens where contact_id = $1 and cliente_id = $2 limit 1", [contactId, clienteId]);
+        "select * from mensagens where contact_id = $1 and cliente_id = $2 and created_at >= now()-interval '72 hours' limit 1", [contactId, clienteId]);
       if (repetida) { await cliente.query("commit"); return repetida; }
     }
     let { rows: [atual] } = await cliente.query(
@@ -109,7 +109,7 @@ export async function registrarMensagemDoAluno(contactId, { texto, arquivoToken,
     if (atual.status !== "aberto") throw new Error("Atendimento encerrado. Inicie um novo atendimento.");
     let menu = null;
     if (atual.menu_mensagem_id && !atual.atendente) {
-      const { rows: [origem] } = await cliente.query("select menu from mensagens where id = $1", [atual.menu_mensagem_id]);
+      const { rows: [origem] } = await cliente.query("select menu from mensagens where id = $1 and created_at >= now()-interval '72 hours'", [atual.menu_mensagem_id]);
       menu = origem?.menu;
     }
     const selecionada = escolherOpcao(menu, opcao, texto);
@@ -123,6 +123,7 @@ export async function registrarMensagemDoAluno(contactId, { texto, arquivoToken,
         anexo?.mime ?? null, anexo?.nome ?? null, atendimento.id, clienteId, selecionada?.id || null,
         selecionada ? menu.id : null]);
     msg = rows[0];
+    await cliente.query("update atendimentos set primeira_mensagem_id=coalesce(primeira_mensagem_id,$2) where id=$1", [atendimento.id, msg.id]);
     if (selecionada) {
       await cliente.query("update atendimentos set menu_mensagem_id = null where id = $1", [atendimento.id]);
       mudouMenu = true;

@@ -15,6 +15,7 @@ export async function sincronizarMenuCRM(mensagemId, dados, ocultarControle) {
     const { rows: [atendimento] } = await cliente.query("select * from atendimentos where id=$1 for update", [alvo.atendimento_id]);
     if (!atendimento || atendimento.status !== "aberto" || atendimento.atendente) { await cliente.query("commit"); return; }
     msg = (await cliente.query("select * from mensagens where id=$1", [mensagemId])).rows[0];
+    if (!msg) { await cliente.query("commit"); return; }
     const { rows: [ultima] } = await cliente.query(
       "select id from mensagens where atendimento_id=$1 and direcao='atendente' order by created_at desc, id desc limit 1", [atendimento.id]);
     if (ultima?.id !== msg.id || msg.menu) { await cliente.query("commit"); return; }

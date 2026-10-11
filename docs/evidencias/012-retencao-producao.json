@@ -1,0 +1,38 @@
+{
+  "data": "2026-10-10",
+  "urlPublica": "https://webchat.engrenatec.com.br",
+  "replicasApp": "2/2",
+  "replicasPostgres": "1/1",
+  "sha256Retencao": "300338d4192ec4a7f4a0dff6767ef5bc9951d366a7a57deb4b58e2c3d82eb549",
+  "migration": "012_retencao_mensagens.sql",
+  "horasHistorico": 72,
+  "intervaloLimpezaSegundos": 60,
+  "apiOcultou73hAntesDaLimpeza": true,
+  "apiMostrouMensagemRecente": true,
+  "exclusaoFisica73hConfirmada": true,
+  "mensagemRecentePreservada": true,
+  "fixturesRemovidas": true,
+  "mensagensLocais": 355,
+  "mensagensVencidas": 0,
+  "arquivosLocais": 0,
+  "bytesArquivosLocais": 0,
+  "cronBackups": "* * * * * root /usr/local/sbin/webchat-limpar-backups",
+  "servicoCron": "active",
+  "backupAnterior": "/root/backups/webchat/retencao-72h-20261010-232848",
+  "testes": [
+    "17 unitários",
+    "integração de retenção",
+    "integração de menus/encerramento",
+    "integração de anexos",
+    "expiração de backup sintético antigo com preservação do recente"
+  ],
+  "observacoes": [
+    "API aplica a janela exata; exclusão física ocorre na próxima limpeza periódica.",
+    "Histórico recebido no DataCrazy não é apagado.",
+    "Pendências de mensagens também expiram, com aviso sem reproduzir o conteúdo antigo.",
+    "Cadastros e metadados operacionais permanecem; não é um limite absoluto de tamanho do banco.",
+    "Commit e novo deploy autorizados por Tiago."
+  ],
+  "limpezaAutomaticaSemChamadaManual": true,
+  "segundosAteRemocaoDaFixturePeloTimer": 36
+}
