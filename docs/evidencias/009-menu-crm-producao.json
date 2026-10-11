@@ -1,0 +1,18 @@
+{
+  "data": "2026-10-11T01:17:30.571Z",
+  "atendimento": 25,
+  "mensagem": "f94daaf6-0a5e-4a3f-a850-454907852b09",
+  "teste": "callback sem marcação simulado somente no espelho do aluno fictício",
+  "textoPreservado": "Escolha o setor que deseja atendimento.",
+  "opcoes": [
+    "Secretaria",
+    "Documentos/Certificado",
+    "Pedagógico",
+    "Não sei qual setor."
+  ],
+  "origemDosBotoes": "REST real do CRM pelo job publicado",
+  "atualizacaoWebSocket": true,
+  "selecaoSecretariaValidada": true,
+  "encerramentoConfirmado": true,
+  "fluxoOriginalAlterado": false
+}

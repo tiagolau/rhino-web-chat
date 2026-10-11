@@ -82,6 +82,67 @@ try {
     console.log('OK:', cenario);
     await pagina.close();
   }
+  // O menu atual vem do servidor, inclusive após recarregar a página.
+  for (const humano of [false, true]) {
+    const pagina = await navegador.newPage();
+    await pagina.addInitScript(() => localStorage.setItem('rhino_webchat_tokens', JSON.stringify({ pagina: 'teste' })));
+    const atendimento = { id: 'at-menu', numero: 1, status: 'aberto', menuId: 'menu-atual', atendente: humano ? 'Ana' : null };
+    const mensagens = ['menu-antigo', 'menu-atual'].map(id => ({
+      id, atendimentoId: atendimento.id, direcao: 'atendente', texto: 'Escolha',
+      menu: { id, opcoes: [{ id: 'op0', texto: 'Encerrar atendimento' }] }, criadaEm: new Date().toISOString(),
+    }));
+    const envios = [];
+    await pagina.route('**/api/**', async rota => {
+      const caminho = new URL(rota.request().url()).pathname;
+      await rota.fulfill({ json: caminho === '/api/sessao'
+        ? { token: 'teste', aluno: { nome: 'Aluno' }, faculdade: { nome: 'Teste' } }
+        : { atendimento, mensagens } });
+    });
+    await pagina.routeWebSocket('**/ws?*', socket => socket.onMessage(bruto => envios.push(JSON.parse(bruto))));
+    await pagina.goto(`http://127.0.0.1:${servidor.address().port}`);
+    await pagina.getByRole('textbox', { name: 'Mensagem', exact: true }).waitFor();
+    if (humano) {
+      assert.equal(await pagina.locator('.opcoes button').count(), 0);
+    } else {
+      assert.equal(await pagina.locator('.opcoes button').count(), 1);
+      await pagina.reload();
+      await pagina.locator('.opcoes button').waitFor();
+      await pagina.locator('.opcoes button').click();
+      await pagina.waitForFunction(() => !document.querySelector('#rhino-webchat').shadowRoot.querySelector('.opcoes button'));
+      await pagina.waitForTimeout(80);
+      assert.equal(envios.length, 1);
+      assert.deepEqual(envios[0].opcao, { menuId: 'menu-atual', opcaoId: 'op0' });
+    }
+    console.log('OK:', humano ? 'humano-desativa-menu' : 'menu-ativo-recarga-selecao');
+    await pagina.close();
+  }
+
+  // A REST enriquece a mesma mensagem depois do callback, sem balão duplicado.
+  const pagina = await navegador.newPage();
+  await pagina.addInitScript(() => localStorage.setItem('rhino_webchat_tokens', JSON.stringify({ pagina: 'teste' })));
+  const atendimento = { id: 'at-crm', numero: 1, status: 'aberto', menuId: null };
+  const mensagem = { id: 'm-crm', atendimentoId: atendimento.id, direcao: 'atendente', texto: 'Escolha seu setor', criadaEm: new Date().toISOString() };
+  let socketCRM;
+  await pagina.route('**/api/**', rota => rota.fulfill({ json: new URL(rota.request().url()).pathname === '/api/sessao'
+    ? { token: 'teste', aluno: { nome: 'Aluno' }, faculdade: { nome: 'Teste' } }
+    : { atendimento, mensagens: [mensagem] } }));
+  await pagina.routeWebSocket('**/ws?*', socket => { socketCRM = socket; });
+  await pagina.goto(`http://127.0.0.1:${servidor.address().port}`);
+  await pagina.getByRole('textbox', { name: 'Mensagem', exact: true }).waitFor();
+  assert.equal(await pagina.locator('.opcoes button').count(), 0);
+  mensagem.menu = { id: mensagem.id, opcoes: [{ id: 'op0', texto: 'Secretaria' }] };
+  atendimento.menuId = mensagem.id;
+  socketCRM.send(JSON.stringify({ tipo: 'mensagem', mensagem }));
+  socketCRM.send(JSON.stringify({ tipo: 'atendimento', atendimento }));
+  await pagina.getByRole('button', { name: 'Secretaria', exact: true }).waitFor();
+  assert.equal(await pagina.locator('.msg.atendente').count(), 1);
+  atendimento.atendente = 'Ana';
+  atendimento.menuId = null;
+  socketCRM.send(JSON.stringify({ tipo: 'atendimento', atendimento }));
+  await pagina.waitForFunction(() => !document.querySelector('#rhino-webchat').shadowRoot.querySelector('.opcoes button'));
+  assert.match(await pagina.locator('.msg.atendente').innerText(), /▸ Secretaria/);
+  console.log('OK: enriquecimento-tardio-sem-duplicação-e-histórico-legível');
+  await pagina.close();
 } finally {
   await navegador?.close();
   await new Promise(resolve => servidor.close(resolve));

@@ -2,7 +2,7 @@
 
 Webchat de suporte para a área do aluno do portal **Eduno** (HotSystems), ligado ao **DataCrazy CRM** do grupo **RJ Global** pela **Conexão Universal**. O DataCrazy é a caixa de atendimento e a base de leads; o webchat é só mais um canal, igual ao WhatsApp.
 
-> **Começando uma conversa nova?** Leia este arquivo inteiro, depois as ADRs [003](docs/decisions/003-producao-mapeamento-identidade-cpf.md) e [004](docs/decisions/004-atendimentos-encerramento-atendente-setores.md). O histórico das decisões está em `docs/decisions/` (001 → 006).
+> **Começando uma conversa nova?** Leia este arquivo inteiro, depois as ADRs [003](docs/decisions/003-producao-mapeamento-identidade-cpf.md), [007](docs/decisions/007-boas-vindas-nativo-menus-por-atendimento.md), [008](docs/decisions/008-payload-text-body.md) e [009](docs/decisions/009-menus-do-crm-sem-alterar-fluxo-original.md). O histórico das decisões está em `docs/decisions/` (001 → 009).
 
 **Repositório:** https://github.com/tiagolau/rhino-web-chat (privado, branch `main`). Commits só quando o Tiago pedir; para funcionalidade nova, criar branch a partir da `main`. O deploy (`app/deploy/deploy.sh`) envia a pasta local, não o que está no GitHub: confira se está na branch certa antes de publicar.
 
@@ -12,14 +12,17 @@ Webchat de suporte para a área do aluno do portal **Eduno** (HotSystems), ligad
 - **Validado de ponta a ponta** com um aluno real no portal (`ava07.eduno.com.br`): texto e arquivo nos dois sentidos, tempo real entre réplicas, vínculo ao lead existente pelo CPF.
 - **Só a faculdade de teste está cadastrada:** `iguacu` → conexão "Webchat Iguaçu (teste)" (instância `6aca6a619ab27fb81a32e33e`).
 - **O widget ainda não está no portal para todos os alunos.** No teste foi injetado à mão no navegador do Tiago. Página própria já disponível em `/chat`.
-- **ADR 004 em produção** (branch `feat/atendimentos-e-setores`, sem commit): atendimentos separados no widget, botão de encerrar, nome do atendente e **roteador de setores** do DataCrazy (gerado do fluxo do WhatsApp), ativo na conexão de teste da Iguaçu.
+- **ADR 007 em produção** (branch `feat/compatibilidade-boas-vindas`): boas-vindas nativo adaptado do export original na conexão de teste Iguaçu, menus validados por atendimento, vínculo antes do webhook e encerramento reconhecido pela sessão do robô. Roteador legado e primeira versão nativa ficam desativados para reversão.
+- **Payload (ADR 008):** na Iguaçu o webhook e os templates de resposta usam `text: { body: "..." }`; condições leem `[Message-1]text.body`. A automação original compartilhada ainda não substituiu o v2. O callback aceita também `text` string para compatibilidade.
+- **Boas-vindas original:** só Tiago pode alterar esse fluxo e suas subautomações, inclusive gatilhos e ativação/desativação. O objetivo é compartilhar o original; o v2 é temporário. Configuração manual e homologação pendentes em [compatibilidade](docs/compatibilidade-boas-vindas-iguacu.md).
+- **ADR 009 em produção:** `iguacu.menus_crm=true`; o backend recupera botões reais pela REST sem exigir `▸` no original. Prova controlada no aluno fictício (atendimento 25) confirmou persistência, atualização por WebSocket, seleção e encerramento. O original ainda não está homologado no webchat.
 
 ## Próximos passos (em ordem)
 
 1. **Conexões definitivas por faculdade** (Iguaçu, Facuvale, Faculeste, Educaminas, FAME). Passo a passo em [docs/faculdade-nova.md](docs/faculdade-nova.md).
-2. **Backup** dos volumes `webchat_files` e `webchat_pg` na Mapeamento (ainda não existe).
+2. **Backup periódico** dos volumes `webchat_files` e `webchat_pg`. Foi feito dump pontual antes da ADR 007; ainda falta rotina de backup.
 3. **Distribuição:** linha do widget no template do Eduno (pedir à HotSystems) e/ou divulgar `https://webchat.engrenatec.com.br/chat`.
-4. **Limpar os testes** depois da Iguaçu definitiva: conexão "Webchat Iguaçu (teste)", as duas automações dela (roteador e atendimento finalizado), lead "Aluno Teste Webchat" (`eb6b57c3-fb5f-4af1-bfb4-d92d44e6d28d`) e, se não for mais usada, a tag "Teste Webchat".
+4. **Limpar os testes** depois da Iguaçu definitiva: conexão "Webchat Iguaçu (teste)", as automações dela (boas-vindas, roteador legado, atendimento finalizado e POCs desativadas), lead "Aluno Teste Webchat" (`eb6b57c3-fb5f-4af1-bfb4-d92d44e6d28d`) e, se não for mais usada, a tag "Teste Webchat".
 
 Ideias levantadas, não priorizadas: painel administrativo web (hoje só a API `/admin`), retenção automática de mensagens e anexos (12 meses, ADR 002), horário de atendimento e mensagem fora do horário no widget.
 
@@ -58,8 +61,14 @@ Portal Eduno ── widget.js ──(HTTPS + WebSocket)──► webchat-api (2 
 
 - **Correlação de mensagens (ADR 006):** `clienteId` do envio fica em `mensagens.cliente_id` e volta no eco, histórico e ack. O widget reconcilia pelo ID ou pela correlação, inclusive ao recarregar histórico antes do ack; nunca deduplicar por conteúdo. Playwright é dependência só de desenvolvimento (`npm run test:ui`).
 - **Interface (ADR 005):** página `/chat` com apresentação RJ Global e montagem em `#chat-mount`; widget e página compartilham tokens visuais no Shadow DOM, ícones SVG próprios e fontes locais. Formulário móvel com rolagem natural; widget do portal em tela cheia no celular. Redesign publicado em 2026-10-10 a partir de `feat/redesign-webchat`, com duas réplicas e validação da página pública em desktop e celular.
-- **Atendimentos (ADR 004):** no widget cada suporte é um atendimento (`atendimentos`, um aberto por aluno); no DataCrazy a conversa é uma só e cada atendimento é uma "thread". Encerramento pelo aluno → job `finalizar_no_datacrazy` (`/finish` + anotação interna). Encerramento no DataCrazy → automação "atendimento finalizado" → `POST /dc/:slug/evento`. Nome do atendente → job `identificar_atendente` (REST `histories`, no máximo 1 consulta/min por atendimento). Avisos na linha do tempo são mensagens `direcao = 'sistema'`.
-- **Automações do DataCrazy** não têm API: o roteador é gerado por `datacrazy/gerar_automacoes_webchat.py` a partir do export do fluxo do WhatsApp e importado no painel. Na Conexão Universal **botões não vão e o robô não espera o clique**: as opções viram linhas `▸ Opção` (o widget mostra como botões) e o roteador decide pelo texto, por `novo_atendimento` e por `com_atendente` (campos do nosso webhook, lidos como `[Message-1]...`). A automação do webchat **não pode criar lead** (o backend vincula pelo CPF).
+- **Atendimentos (ADR 004):** no widget cada suporte é um atendimento (`atendimentos`, um aberto por aluno); no DataCrazy a conversa é uma só e cada atendimento é uma "thread". Encerramento pelo aluno → job `finalizar_no_datacrazy` (limpeza da sessão nativa + `/finish` + anotação interna). Encerramento no DataCrazy → automação "atendimento finalizado" → `POST /dc/:slug/evento`. Nome do atendente → job `identificar_atendente` (REST `histories`, no máximo 1 consulta/min por atendimento). Avisos na linha do tempo são mensagens `direcao = 'sistema'`.
+- **Automações (ADR 007):** gerar com `--modo nativo` a partir do export WhatsApp e importar no painel. A Universal não envia metadados de botões, mas a sessão **retoma pelo rótulo exato**. Linhas `▸` exibem opções; o widget envia `{menuId, opcaoId}`, o servidor valida o menu atual e encaminha o rótulo canônico. Nunca indexar navegação globalmente por texto.
+- **Sessão nativa:** `faculdades.fluxo_nativo` habilita a entrada. Apenas um boas-vindas deve estar ativo por conexão. Nenhuma automação cria lead ou coleta nome/CPF. Guardas `conversation-has-attendant-condition` verificam o humano no estado atual do CRM, antes dos ramos e timeouts.
+- **Encerramento nativo:** `/finish` não limpa esperas. O job envia o controle `Atendimento encerrado` e espera `POST /dc/:slug/evento` com `sessao_encerrada` e o ID do atendimento antes de finalizar e liberar a próxima mensagem. A opção de controle existe nos botões nativos, mas não nas opções visíveis. As esperas terminais também reconhecem seu fim. Migrations 006/007 são aditivas.
+- **Envio ao CRM:** aguardar vínculo do lead e conclusão do encerramento anterior; conservar a ordem das mensagens pendentes pela fila existente.
+- **Contrato de texto:** `src/payload.js` adapta a fronteira com o CRM. `faculdades.texto_estruturado` (migration 008, padrão false) habilita o envio `text.body` por conexão; preparar o mapeamento e as condições antes de habilitar. Respostas `/dc/:slug/send` aceitam string ou `{body: string}` e recusam outros tipos com 400. Widget, WebSocket e mensagens persistidas usam string.
+- **Botões do CRM (ADR 009):** `faculdades.menus_crm` (migration 009, padrão false) permite recuperar `messages[].buttons` pela REST para callbacks sem menu textual. Job `sincronizar_menu`, atraso de 2 s, consulta das últimas 20 mensagens pelo limitador existente, aproveitada para identificar o humano. Correlação pelo ID do CRM; `src/menus-crm.js` aplica opções sob trava do atendimento e não reativa menus respondidos/superados/encerrados. O widget atualiza o mesmo balão e conserva opções inativas no histórico. Essa preparação não troca a automação ativa.
+
 
 - `contactId` = `eduno:<slug>:<20 primeiros hex do HMAC do CPF>`. O mesmo aluno cai na mesma conversa vindo do portal ou de `/chat`.
 - **CPF:** no banco só o hash (`cpf_hash`) e a cópia cifrada AES-GCM (`cpf_cifrado`, para gravar no `taxId` do lead). **Nunca em logs.** `CPF_PEPPER` e `CPF_ENC_KEY` não podem mudar depois de em uso.
@@ -72,7 +81,7 @@ Portal Eduno ── widget.js ──(HTTPS + WebSocket)──► webchat-api (2 
 
 ## Armadilhas já encontradas
 
-- **Na Conexão Universal, o gatilho "mensagem recebida" dispara a cada mensagem do aluno, mesmo depois que o atendente assume** (o `only-if-finished-service` não segura). Botões de automação não são enviados e o robô não espera o clique. Ver ADR 004.
+- **Universal:** não confiar no modo do gatilho para proteger o humano. O datasource (inclusive `text.body` e `com_atendente`) conserva o payload inicial após uma espera. Não decide ramos posteriores. Testes antigos sobre ausência de espera foram corrigidos pela ADR 007: havia interferência de outro menu.
 - **O `/finish` do aluno volta como evento** ("atendimento finalizado") em ~0,2 s: o backend ignora pelo `dc_finalizado_em` (30 s).
 - **O webhook do DataCrazy responde 200 mesmo quando rejeita** (ex.: `INVALID_SIGNATURE`). O erro real só aparece na aba **Logs** da conexão (TTL de 1 h).
 - **Campos sensíveis do painel** (Segredo de Validação, valor das Credenciais) não salvam por preenchimento automático: colar à mão. Para conferir, `GET /api/v1/instances` devolve o segredo mascarado (`99d****138`).
@@ -89,7 +98,7 @@ Portal Eduno ── widget.js ──(HTTPS + WebSocket)──► webchat-api (2 
   - `public/widget.js` (modo portal ou `data-modo="pagina"`), `public/chat.html`.
   - `src/migrations/`, `test/` (unitários), `scripts/e2e.mjs`, `scripts/conversa.mjs` (conversa como aluno de teste, para testar o roteador) e `scripts/ouvir-atendente.mjs`.
   - `deploy/stack.yml`, `deploy/deploy.sh`; segredos em `deploy/.env.production` (600, **não versionado**).
-- `datacrazy/`: gerador das automações do webchat (roteador + atendimento finalizado). Saída em `datacrazy/gerado/` (fora do git: leva a `api_key`).
+- `datacrazy/`: gerador das automações do webchat (boas-vindas nativo ou roteador legado + atendimento finalizado). Saída em `datacrazy/gerado/` (fora do git: leva a `api_key`).
 - `docs/`: levantamentos, ADRs e passo a passo.
 - `ferramentas/webchat-eduno.user.js`: userscript para testar o widget no portal.
 - `poc/`: prova de conceito da Conexão Universal (só referência histórica).
@@ -102,6 +111,9 @@ cd app && npm test
 
 # regressão de UI (API/WebSocket simulados, sem CRM)
 cd app && npx playwright install chromium && npm run test:ui
+
+# integração com Postgres real descartável e CRM simulado
+cd app && node scripts/test-integracao-menus.mjs
 
 # dev local (Postgres local `rhino_webchat`; app/.env não versionado, ver app/.env.example)
 cd app && npm install --cache /tmp/npm-cache-rhino && node --env-file=.env src/server.js

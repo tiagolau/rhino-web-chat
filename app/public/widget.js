@@ -501,6 +501,9 @@
       }
       // Opções que não estão ativas continuam visíveis como texto.
       var corpo = i === ativas ? partes.texto : m.texto;
+      if (m.menu && !partes.opcoes.length && i !== ativas) {
+        corpo = (corpo || "") + "\n\n" + m.menu.opcoes.map(function (o) { return "▸ " + o.texto; }).join("\n");
+      }
       if (corpo && !(m.anexo && corpo === m.anexo.nome)) div.appendChild(document.createTextNode(corpo));
       else if (!m.texto && !m.anexo) div.appendChild(document.createTextNode("Carregando anexo…"));
       var meta = document.createElement("span");
@@ -511,8 +514,9 @@
       if (i === ativas) {
         var opcoes = document.createElement("div");
         opcoes.className = "opcoes";
-        partes.opcoes.forEach(function (texto) {
-          opcoes.appendChild(botao(texto, "opcao", function () { enviarOpcao(texto); }));
+        var escolhas = m.menu ? m.menu.opcoes : partes.opcoes.map(function (texto) { return { texto: texto }; });
+        escolhas.forEach(function (opcao) {
+          opcoes.appendChild(botao(opcao.texto, "opcao", function () { enviarOpcao(opcao.texto, m.menu, opcao.id); }));
         });
         lista.appendChild(opcoes);
       }
@@ -520,8 +524,8 @@
     lista.scrollTop = lista.scrollHeight;
   }
 
-  // Opções de menu: linhas "▸ Opção" no fim da mensagem (o DataCrazy não manda
-  // botões pela Conexão Universal; a automação escreve assim, ADR 004).
+  // Compatibilidade com linhas "▸ Opção" (ADR 004). Menus sem marcações chegam
+  // nos metadados da mensagem, recuperados pela REST do CRM (ADR 009).
   var MARCA_OPCAO = /^\s*▸\s*/;
   function separarOpcoes(texto) {
     var linhas = String(texto || "").split("\n");
@@ -537,6 +541,13 @@
   // atendente escrevem, o menu anterior vira texto.
   function indiceOpcoesAtivas(mensagens) {
     if (estado.tela !== "atual" || encerrado()) return -1;
+    if (estado.atendimento && estado.atendimento.atendente) return -1;
+    if (estado.atendimento && typeof estado.atendimento.menuId !== "undefined") {
+      for (var j = mensagens.length - 1; j >= 0; j--) {
+        if (mensagens[j].id === estado.atendimento.menuId && mensagens[j].menu) return j;
+      }
+      return -1;
+    }
     for (var i = mensagens.length - 1; i >= 0; i--) {
       var m = mensagens[i];
       if (m.direcao === "sistema") continue;
@@ -545,8 +556,12 @@
     return -1;
   }
 
-  function enviarOpcao(texto) {
-    if (textarea) { textarea.value = texto; enviarTexto(); }
+  function enviarOpcao(texto, menu, opcaoId) {
+    if (textarea) {
+      textarea.value = texto;
+      if (menu && estado.atendimento) estado.atendimento.menuId = null;
+      enviarTexto(menu ? { menuId: menu.id, opcaoId: opcaoId } : null);
+    }
   }
 
   // Atendimento atual: o aberto ou, se não houver, o último. Encerrado há mais
@@ -576,7 +591,7 @@
     else estado.filaEnvio.push(payload);
   }
 
-  function enviarTexto() {
+  function enviarTexto(opcao) {
     var texto = textarea.value.trim();
     if (!texto) return;
     textarea.value = "";
@@ -584,7 +599,7 @@
     var clienteId = novoClienteId();
     inserirOuAtualizar({ clienteId: clienteId, direcao: "aluno", texto: texto, status: "enviando", criadaEm: new Date().toISOString() });
     renderizar();
-    despachar({ tipo: "mensagem", texto: texto, clienteId: clienteId });
+    despachar({ tipo: "mensagem", texto: texto, clienteId: clienteId, opcao: opcao && opcao.menuId ? opcao : null });
   }
 
   function enviarArquivo(arquivo) {
@@ -647,6 +662,7 @@
       } else if (dados.tipo === "erro") {
         inserirOuAtualizar({ clienteId: dados.clienteId, status: "falha" });
         renderizar();
+        carregarHistorico().catch(function () {});
       }
     };
 

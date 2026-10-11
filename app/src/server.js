@@ -17,7 +17,8 @@ import { registrar, enfileirar, iniciarConsumidor } from "./fila.js";
 import { vincularLead } from "./leads.js";
 import { registrarMensagemDoAluno, registrarMensagemDoAtendente, jobEnviarMensagem, jobBuscarAnexo } from "./mensagens.js";
 import { adicionarConexao, iniciarOuvinte, serializarMensagem, serializarAtendimento, totalConexoes } from "./tempo-real.js";
-import { encerrarAtendimento, jobFinalizarNoDataCrazy, jobIdentificarAtendente } from "./atendimentos.js";
+import { encerrarAtendimento, jobFinalizarNoDataCrazy, jobIdentificarAtendente, jobSincronizarMenu } from "./atendimentos.js";
+import { lerTexto } from "./payload.js";
 
 const raiz = dirname(fileURLToPath(import.meta.url));
 const pastaPublica = join(raiz, "..", "public");
@@ -336,7 +337,7 @@ app.get("/ws", { websocket: true }, (socket, req) => {
       }
       if (dados.tipo !== "mensagem") return;
       try {
-        const msg = await registrarMensagemDoAluno(sessao.contactId, { texto: dados.texto, arquivoToken: dados.arquivo, clienteId: dados.clienteId }, req.log);
+        const msg = await registrarMensagemDoAluno(sessao.contactId, { texto: dados.texto, arquivoToken: dados.arquivo, clienteId: dados.clienteId, opcao: dados.opcao }, req.log);
         socket.send(JSON.stringify({ tipo: "ack", clienteId: dados.clienteId, mensagem: serializarMensagem(msg) }));
       } catch (err) {
         req.log.warn({ err: err.message }, "mensagem do aluno recusada");
@@ -355,6 +356,9 @@ app.post("/dc/:slug/send", async (req, reply) => {
     return reply.code(401).send({ ok: false, error: "unauthorized" });
   }
   const b = req.body || {};
+  let texto;
+  try { texto = lerTexto(b.text); }
+  catch (err) { return reply.code(400).send({ ok: false, error: err.message }); }
   const aluno = await umaLinha("select contact_id from alunos where contact_id = $1 and faculdade = $2", [
     b.contactId,
     faculdade.slug,
@@ -364,14 +368,14 @@ app.post("/dc/:slug/send", async (req, reply) => {
   const dcMessageId = valorTemplate(b.dcMessageId);
   const anexoUrl = valorTemplate(b.attachmentUrl);
   const msg = await registrarMensagemDoAtendente(aluno.contact_id, {
-    texto: b.text,
+    texto,
     dcMessageId,
     anexoUrl,
     anexoTipo: valorTemplate(b.mimeType),
     anexoNome: valorTemplate(b.filename),
   });
   // Mensagem vazia sem anexo = arquivo que veio pelo endpoint de texto (sem "Anexos" na conexão).
-  if (!anexoUrl && !String(b.text ?? "").trim() && dcMessageId) {
+  if (!anexoUrl && !texto.trim() && dcMessageId) {
     await enfileirar("buscar_anexo", { mensagemId: msg.id, dcMessageId, contactId: aluno.contact_id }, { chave: dcMessageId, atrasoMs: 2000 });
   }
   return { ok: true, id: msg.id };
@@ -386,6 +390,14 @@ app.post("/dc/:slug/evento", async (req, reply) => {
     return reply.code(401).send({ ok: false, error: "unauthorized" });
   }
   const b = req.body || {};
+  if (b.evento === "sessao_encerrada") {
+    const id = valorTemplate(b.atendimentoId);
+    if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return reply.code(400).send({ ok: false, error: "atendimento inválido" });
+    const { rowCount } = await query(
+      `update atendimentos at set dc_sessao_limpa_em = now() from alunos al
+       where at.id = $1 and al.contact_id = at.contact_id and al.faculdade = $2`, [id, faculdade.slug]);
+    return { ok: true, reconhecido: Boolean(rowCount) };
+  }
   if (b.evento !== "atendimento_finalizado") return reply.code(400).send({ ok: false, error: "evento desconhecido" });
   const conversa = valorTemplate(b.conversationId);
   const leadId = valorTemplate(b.leadId);
@@ -428,7 +440,7 @@ async function exigirAdmin(req, reply) {
 
 app.get("/admin/faculdades", async (req, reply) => {
   if (!(await exigirAdmin(req, reply))) return;
-  const { rows } = await query("select slug, nome, rodape, instance_id, webhook_url, ativo, updated_at from faculdades order by slug");
+  const { rows } = await query("select slug, nome, rodape, instance_id, webhook_url, ativo, fluxo_nativo, texto_estruturado, menus_crm, updated_at from faculdades order by slug");
   return rows;
 });
 
@@ -439,14 +451,19 @@ app.post("/admin/faculdades", async (req, reply) => {
     if (!f[campo]) return reply.code(400).send({ erro: `campo ${campo} obrigatório` });
   }
   if (!/^[a-z0-9-]+$/.test(f.slug)) return reply.code(400).send({ erro: "slug só aceita a-z, 0-9 e hífen" });
+  if (f.texto_estruturado != null && typeof f.texto_estruturado !== "boolean") return reply.code(400).send({ erro: "texto_estruturado deve ser boolean" });
+  if (f.menus_crm != null && typeof f.menus_crm !== "boolean") return reply.code(400).send({ erro: "menus_crm deve ser boolean" });
   await query(
-    `insert into faculdades (slug, nome, rodape, instance_id, webhook_url, webhook_secret, api_key, ativo)
-     values ($1, $2, $3, $4, $5, $6, $7, coalesce($8, true))
+    `insert into faculdades (slug, nome, rodape, instance_id, webhook_url, webhook_secret, api_key, ativo, fluxo_nativo, texto_estruturado, menus_crm)
+     values ($1, $2, $3, $4, $5, $6, $7, coalesce($8, true), coalesce($9, false), coalesce($10, false), coalesce($11, false))
      on conflict (slug) do update set
        nome = excluded.nome, rodape = excluded.rodape, instance_id = excluded.instance_id,
        webhook_url = excluded.webhook_url, webhook_secret = excluded.webhook_secret,
-       api_key = excluded.api_key, ativo = excluded.ativo, updated_at = now()`,
-    [f.slug, f.nome, f.rodape, f.instance_id, f.webhook_url, f.webhook_secret, f.api_key, f.ativo ?? null],
+       api_key = excluded.api_key, ativo = excluded.ativo,
+       fluxo_nativo = coalesce($9, faculdades.fluxo_nativo),
+       texto_estruturado = coalesce($10, faculdades.texto_estruturado),
+       menus_crm = coalesce($11, faculdades.menus_crm), updated_at = now()`,
+    [f.slug, f.nome, f.rodape, f.instance_id, f.webhook_url, f.webhook_secret, f.api_key, f.ativo ?? null, f.fluxo_nativo ?? null, f.texto_estruturado ?? null, f.menus_crm ?? null],
   );
   invalidarCacheFaculdades();
   return { ok: true };
@@ -478,6 +495,7 @@ registrar("enviar_mensagem", jobEnviarMensagem);
 registrar("buscar_anexo", jobBuscarAnexo);
 registrar("finalizar_no_datacrazy", jobFinalizarNoDataCrazy);
 registrar("identificar_atendente", jobIdentificarAtendente);
+registrar("sincronizar_menu", jobSincronizarMenu);
 
 await migrar(app.log);
 const pararConsumidor = iniciarConsumidor(app.log);

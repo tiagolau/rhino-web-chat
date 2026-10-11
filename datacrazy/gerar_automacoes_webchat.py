@@ -1,26 +1,14 @@
 """Gera as automações do webchat de uma faculdade para importar no DataCrazy (ADR 004).
 
-Por que um "roteador": na Conexão Universal o DataCrazy envia só o texto das
-mensagens (os botões não vão) e **não espera a resposta de um botão**. Cada
-mensagem do aluno dispara de novo a automação de entrada (validado em 2026-10-10).
-Então os menus do WhatsApp, que dependem de esperar o clique, não funcionam lá.
+No modo `nativo`, preserva a sessão, os botões e os ramos do boas-vindas
+original. O DataCrazy não transmite botões na Conexão Universal, mas retoma
+pelo rótulo exato. As linhas ▸ expõem as opções ao widget (ADR 007).
 
-Este gerador lê o export do fluxo do WhatsApp da faculdade (boas-vindas, menus e
-subfluxos, tudo no mesmo arquivo) e monta UMA automação sem estado:
-
-    mensagem do aluno ─┬─ texto = opção de algum menu? → faz o que o botão fazia
-                       ├─ primeira mensagem do atendimento? → saudação + menu de setores
-                       └─ senão → nada (o aluno está escrevendo para o atendente)
-
-- Menus e subfluxos são copiados para dentro do roteador (start-another-automation
-  vira ligação direta). Os botões viram linhas "▸ Opção" no fim da mensagem: o
-  widget mostra como botões e o clique manda o texto da opção.
-- O backend informa `novo_atendimento: "sim"` no webhook da primeira mensagem.
-- Não pede nome nem CPF e não cria lead (o backend vincula pelo CPF). Põe a tag
-  Eduno, porque todo aluno do webchat vem do portal Eduno.
-- Horário: os menus de setor passam por seg-qui 08-18h / sex 08-17h. Fora do
-  horário, avisa e para (sem o "Manter Janela", que é coisa da janela de 24 h do
-  WhatsApp). Lead com a tag de teste pula o horário.
+O modo `roteador` conserva a geração anterior, sem estado, para rollback.
+Nos dois modos, normaliza destinos para o canal atual, incorpora subfluxos,
+usando a identificação do Eduno em vez de pedir nome/CPF ou criar lead.
+Os menus de setor respeitam seg-qui 08-18h / sex 08-17h; apenas a tag de teste
+pula essa checagem. Exclui Manter Janela, exclusivo do WhatsApp.
 
 Gera também "Webchat <faculdade>: atendimento finalizado", que avisa o backend
 (POST /dc/<slug>/evento) quando o atendimento termina no DataCrazy.
@@ -92,7 +80,7 @@ def so_horario(b):
 
 
 class Roteador:
-    def __init__(self, dados, faculdade, tag_teste):
+    def __init__(self, dados, faculdade, tag_teste, nativo=False, callback_url="", api_key=""):
         self.dados = dados
         self.faculdade = faculdade
         self.tag_teste = tag_teste
@@ -105,11 +93,41 @@ class Roteador:
         self.fila = deque()
         self.fora = None
         self.menu_principal = None
+        self.nativo = nativo
+        self.substituicoes = {}
+        self.protecoes = {}
+        self.callback_url = callback_url
+        self.api_key = api_key
+        self.ack_encerramento = None
+
+    def reconhecer_encerramento(self):
+        if self.ack_encerramento is None:
+            self.ack_encerramento = bloco("api", {"apis": [{"name": "json-http-request-api", "group": "http", "options": {
+                "url": self.callback_url, "method": "POST", "query": [],
+                "body": json.dumps({"evento": "sessao_encerrada", "atendimentoId": "${[Message-1]atendimento_id}"}),
+                "headers": [{"key": "Content-Type", "value": "application/json"}, {"key": "X-Api-Key", "value": self.api_key}],
+                "retryCount": 3, "retryIntervalSeconds": 5,
+                "datasourceName": "Sessao-encerrada", "datasourceColor": "#3b82f6"}}],
+                "nextBlockId": "", "errorNextBlockId": ""})
+            self.blocos.append(self.ack_encerramento)
+        return self.ack_encerramento["id"]
+
+    def proteger_humano(self, destino):
+        if not destino or not self.nativo:
+            return destino
+        if destino not in self.protecoes:
+            guarda = condicao([cond("conversation-has-attendant-condition", "messages", {"attendantIds": []})],
+                              "", destino)
+            self.protecoes[destino] = guarda["id"]
+            self.blocos.append(guarda)
+        return self.protecoes[destino]
 
     # ------------------------------------------------------------- cópia ---
     def copiar(self, bid):
         if not bid:
             return ""
+        if bid in self.substituicoes:
+            return self.copiar(self.substituicoes[bid])
         if bid in self.memo:
             return self.memo[bid]
         b = self.origem[bid]
@@ -128,17 +146,30 @@ class Roteador:
                 m["stepId"] = novo_id()
                 mo = m["options"]
                 if mo.get("buttons"):
-                    for bt in mo["buttons"]:
-                        if bt["text"] not in self.opcoes and bt.get("nextBlockId"):
-                            self.opcoes[bt["text"]] = bt["nextBlockId"]
-                            self.fila.append(bt["nextBlockId"])
                     linhas = [MARCA_OPCAO + bt["text"] for bt in mo["buttons"]]
-                    if bid != self.menu_principal:
+                    if self.nativo:
+                        # A sessão nativa reconhece o rótulo exato recebido pelo
+                        # webhook. Os botões ficam no CRM; as linhas os tornam
+                        # visíveis no widget sem consultas REST (ADR 007).
+                        for bt in mo["buttons"]:
+                            bt["id"] = novo_id()
+                            bt["nextBlockId"] = self.proteger_humano(self.copiar(bt.get("nextBlockId")))
+                        # Controle enviado pelo backend ao encerrar. A opção
+                        # não entra nas linhas visíveis: o widget já tem Encerrar.
+                        mo["buttons"].append({"id": novo_id(), "text": "Atendimento encerrado",
+                                               "nextBlockId": self.reconhecer_encerramento()})
+                    else:
+                        for bt in mo["buttons"]:
+                            if bt["text"] not in self.opcoes and bt.get("nextBlockId"):
+                                self.opcoes[bt["text"]] = bt["nextBlockId"]
+                                self.fila.append(bt["nextBlockId"])
+                    if not self.nativo and bid != self.menu_principal:
                         linhas.append(MARCA_OPCAO + MENU_INICIAL)
                     mo["text"] = mo["text"].rstrip() + "\n\n" + "\n".join(linhas)
-                    mo["buttons"] = []
+                    if not self.nativo:
+                        mo["buttons"] = []
                 if "timeoutNextBlockId" in mo:
-                    mo["timeoutNextBlockId"] = self.copiar(mo["timeoutNextBlockId"])
+                    mo["timeoutNextBlockId"] = self.proteger_humano(self.copiar(mo["timeoutNextBlockId"]))
         elif b["type"] == "condition":
             for c in o["conditions"]:
                 c["id"] = novo_id()
@@ -153,6 +184,9 @@ class Roteador:
             raise SystemExit(f"tipo de bloco não previsto: {b['type']} ({bid})")
         if "nextBlockId" in o:
             o["nextBlockId"] = self.copiar(o["nextBlockId"])
+        if self.nativo and b["type"] == "chat" and not o.get("nextBlockId") and any(
+                m["name"] == "text-input-message" for m in o["messages"]):
+            o["nextBlockId"] = self.reconhecer_encerramento()
         if o.get("errorNextBlockId"):
             o["errorNextBlockId"] = self.copiar(o["errorNextBlockId"])
         self.blocos.append(novo)
@@ -160,7 +194,7 @@ class Roteador:
 
     # Ação: "iniciar outra automação" vira ligação direta para a cópia dela.
     def _acao(self, b):
-        acoes = [a for a in b["options"]["actions"] if a["name"] != "start-another-automation-action"]
+        acoes = [copy.deepcopy(a) for a in b["options"]["actions"] if a["name"] != "start-another-automation-action"]
         inicios = [a["options"]["automationId"] for a in b["options"]["actions"]
                    if a["name"] == "start-another-automation-action"]
         if len(inicios) > 1 or (inicios and b["options"].get("nextBlockId")):
@@ -172,6 +206,10 @@ class Roteador:
         novo["id"] = self.memo[b["id"]] = novo_id()
         novo["sourceBlockId"] = None
         novo["options"]["actions"] = acoes
+        if self.nativo:
+            for acao in acoes:
+                if acao["name"] == "change-conversation-department-action":
+                    acao["options"].update(type="current-conversation", instanceId="")
         novo["options"]["nextBlockId"] = self.porta(inicios[0]) if inicios else self.copiar(b["options"].get("nextBlockId"))
         if novo["options"].get("errorNextBlockId"):
             novo["options"]["errorNextBlockId"] = self.copiar(novo["options"]["errorNextBlockId"])
@@ -214,7 +252,58 @@ class Roteador:
         return self.fora["id"]
 
     # ------------------------------------------------------------ montagem ---
+    def montar_nativo(self, instancia):
+        entrada = next(a for a in self.dados["automations"] if any(
+            t["name"] == "message-received-trigger"
+            for b in a["blocks"] if b["type"] == "trigger" for t in b["options"]["triggers"]))
+        menu = next(b for b in entrada["blocks"] if b["type"] == "chat" and any(
+            m["options"].get("buttons") and "setor" in m["options"].get("text", "").lower()
+            for m in b["options"]["messages"]))
+        self.menu_principal = menu["id"]
+        retorno = next(b for b in entrada["blocks"] if b["type"] == "chat" and any(
+            "que bom te receber novamente" in m["options"].get("text", "").lower()
+            for m in b["options"]["messages"]))
+        especial = next(b for b in entrada["blocks"] if b["type"] == "chat" and any(
+            "assumirá o atendimento em instantes" in m["options"].get("text", "")
+            for m in b["options"]["messages"]))
+        # O backend já confirmou o lead e o CPF. As duas entradas originais
+        # mantêm suas saudações, mas não coletam identidade nem criam lead.
+        for b in entrada["blocks"]:
+            if b["type"] != "condition":
+                continue
+            nomes = [c["name"] for c in b["options"]["conditions"]]
+            if nomes == ["lead-exists-condition"]:
+                alvo = self.origem[b["options"]["trueNextBlockId"]]
+                destino = especial if any(c["name"] == "lead-with-taxid-exists-condition"
+                                           for c in alvo["options"].get("conditions", [])) else retorno
+                self.substituicoes[b["id"]] = destino["id"]
+            if nomes == ["lead-has-tag-condition"]:
+                self.substituicoes[b["id"]] = menu["id"]
+        gatilho_origem = next(b for b in entrada["blocks"] if b["type"] == "trigger")
+        inicio = self.proteger_humano(self.copiar(gatilho_origem["options"]["nextBlockId"]))
+        tag = next(t for t in self.dados["tags"] if t["name"] == TAG_ALUNO)
+        marcar = bloco("action", {"actions": [{"name": "add-tag-action", "group": "lead", "options": {
+            "tagIds": [tag["id"]], "tagName": "", "resolvedReferences": {"tags": [tag]}}}],
+            "nextBlockId": inicio, "errorNextBlockId": ""})
+        primeira = condicao([cond("field-is-equal-condition", "field", {
+            "parameter": "[Message-1]novo_atendimento", "equalsTo": "sim"})], marcar["id"], "")
+        humano = condicao([cond("field-is-equal-condition", "field", {
+            "parameter": "[Message-1]com_atendente", "equalsTo": "sim"})], "", primeira["id"])
+        encerramento = condicao([cond("field-is-equal-condition", "field", {
+            "parameter": "[Message-1]text.body", "equalsTo": "Atendimento encerrado"})],
+            self.reconhecer_encerramento(), humano["id"])
+        gatilho = bloco("trigger", {"triggers": [{"name": "message-received-trigger", "group": "messages", "options": {
+            "type": "contains", "keywords": [], "instanceId": instancia, "listenGroup": False,
+            "receiveJson": True, "datasourceName": "Message-1", "datasourceColor": "#3b82f6",
+            "initializeSession": "only-if-finished-service"}}], "nextBlockId": encerramento["id"]})
+        self.blocos = [gatilho, encerramento, humano, primeira, marcar] + self.blocos
+        organizar(self.blocos)
+        return [bt["text"] for b in self.blocos for m in b["options"].get("messages", [])
+                for bt in m["options"].get("buttons", []) if bt["text"] != "Atendimento encerrado"]
+
     def montar(self, instancia):
+        if self.nativo:
+            return self.montar_nativo(instancia)
         entrada = next(a for a in self.dados["automations"] if any(
             t["name"] == "message-received-trigger"
             for b in a["blocks"] if b["type"] == "trigger" for t in b["options"]["triggers"]))
@@ -238,9 +327,9 @@ class Roteador:
         lead = condicao([cond("lead-exists-condition", "lead", {})], ola_nome["id"], ola["id"])
         inicio = condicao([cond("field-is-equal-condition", "field",
                                 {"equalsTo": "sim", "parameter": "[Message-1]novo_atendimento"})], lead["id"], "")
-        opcoes = [cond("field-is-equal-condition", "field", {"equalsTo": txt, "parameter": "[Message-1]text"},
+        opcoes = [cond("field-is-equal-condition", "field", {"equalsTo": txt, "parameter": "[Message-1]text.body"},
                        self.memo[alvo] or None) for txt, alvo in self.opcoes.items() if self.memo.get(alvo)]
-        opcoes.append(cond("field-is-equal-condition", "field", {"equalsTo": MENU_INICIAL, "parameter": "[Message-1]text"}, menu))
+        opcoes.append(cond("field-is-equal-condition", "field", {"equalsTo": MENU_INICIAL, "parameter": "[Message-1]text.body"}, menu))
         roteador = condicao(opcoes, "", inicio["id"])
         # Com atendente humano na conversa, o robô não fala (o gatilho continua
         # disparando mesmo depois que o atendente assume).
@@ -292,7 +381,7 @@ def organizar(blocos):
 
 def automacao(nome, tenant, blocos, nota):
     return {
-        "id": novo_id(), "name": nome, "description": "Webchat do portal Eduno (ADR 004)", "group": "Webchat",
+        "id": novo_id(), "name": nome, "description": "Webchat do portal Eduno (ADR 007)", "group": "Webchat",
         "active": False, "imageUrl": "", "loopLevel": 1, "versionId": novo_id(), "versionName": nome, "version": 1,
         "tenantId": tenant, "blocks": blocos,
         "notes": [{"id": novo_id(), "options": {"text": nota, "color": "#bae6fd", "width": 520, "height": 520},
@@ -300,7 +389,7 @@ def automacao(nome, tenant, blocos, nota):
     }
 
 
-def finalizado(tenant, instancia, faculdade, slug, url, chave):
+def finalizado(tenant, instancia, faculdade, slug, url, chave, nativo=False):
     api = bloco("api", {"apis": [{"name": "json-http-request-api", "group": "http", "options": {
         "url": f"{url}/dc/{slug}/evento", "method": "POST", "query": [],
         "body": json.dumps({"evento": "atendimento_finalizado", "conversationId": "${conversationId}", "leadId": "${leadId}"}),
@@ -332,17 +421,20 @@ def main():
     p.add_argument("--faculdade", required=True, help='nome exibido, ex.: "Faculdade Iguaçu"')
     p.add_argument("--tag-teste", default="", help="id da tag que pula a checagem de horário (lead de teste)")
     p.add_argument("--url", default=URL_PADRAO)
+    p.add_argument("--modo", choices=["roteador", "nativo"], default="roteador")
+    p.add_argument("--somente-entrada", action="store_true", help="não duplica a automação de encerramento já existente")
     a = p.parse_args()
     chave = os.environ.get("WEBCHAT_API_KEY")
-    if not chave:
+    if not chave and (not a.somente_entrada or a.modo == "nativo"):
         raise SystemExit("defina WEBCHAT_API_KEY (api_key da faculdade no backend)")
 
     dados = json.load(open(a.export))["data"]
     tenant = dados["automations"][0]["tenantId"]
-    r = Roteador(dados, a.faculdade, a.tag_teste)
+    r = Roteador(dados, a.faculdade, a.tag_teste, nativo=a.modo == "nativo",
+                 callback_url=f"{a.url}/dc/{a.slug}/evento", api_key=chave or "")
     opcoes = r.montar(a.instancia)
     nota = (f"💬 WEBCHAT {a.faculdade}: ROTEADOR\n\n"
-            "Na Conexão Universal os botões não são enviados e o DataCrazy não espera o clique: "
+            "Modo legado sem sessão nativa: "
             "cada mensagem do aluno roda esta automação.\n\n"
             "0. Atendente humano já assumiu (com_atendente = sim) → nada\n"
             "1. Texto igual a uma opção de menu → faz o que o botão fazia no WhatsApp\n"
@@ -352,17 +444,27 @@ def main():
             "Não pede nome nem CPF e não cria lead.\n\n"
             "⚠️ Gerado por datacrazy/gerar_automacoes_webchat.py a partir do fluxo do WhatsApp. "
             "Não edite aqui: mude o fluxo do WhatsApp, exporte e gere de novo (ADR 004).")
-    automacoes = [automacao(f"Webchat {a.faculdade}: roteador", tenant, r.blocos, nota),
-                  finalizado(tenant, a.instancia, a.faculdade, a.slug, a.url, chave)]
+    if a.modo == "nativo":
+        nota = ("Boas-vindas original adaptado ao webchat (ADR 007). Sessão nativa: only-if-finished-service. "
+                "Botões preservados no CRM; linhas ▸ exibidas no widget; resposta pelo rótulo exato. "
+                "Sem coleta de nome/CPF, sem criação de lead, sem Manter Janela. "
+                "Ative apenas este fluxo de entrada na conexão; mantenha o roteador antigo desativado.")
+    nome = "boas-vindas" if a.modo == "nativo" else "roteador"
+    automacoes = [automacao(f"Webchat {a.faculdade}: {nome}", tenant, r.blocos, nota)]
+    if not a.somente_entrada:
+        automacoes.append(finalizado(tenant, a.instancia, a.faculdade, a.slug, a.url, chave, nativo=a.modo == "nativo"))
     validar(automacoes)
-    saida = Path(__file__).parent / "gerado" / f"webchat-{a.slug}.json"
+    sufixo = "-nativo" if a.modo == "nativo" else ""
+    if a.somente_entrada:
+        sufixo += "-so-boas-vindas" if a.modo == "nativo" else "-so-roteador"
+    saida = Path(__file__).parent / "gerado" / f"webchat-{a.slug}{sufixo}.json"
     saida.parent.mkdir(exist_ok=True)
     tags = [t for t in dados["tags"] if t["name"] == TAG_ALUNO]
     json.dump({"hasInvalidReferences": False, "data": {
         "tags": tags, "additionalFields": [], "businessLossReasons": [], "activityTypes": [], "pipelines": [],
         "departments": dados["departments"], "workingHours": [], "automations": automacoes}},
         open(saida, "w"), ensure_ascii=False, indent=2)
-    print(f"{saida}: roteador com {len(r.blocos)} blocos e {len(opcoes)} opções")
+    print(f"{saida}: {nome} com {len(r.blocos)} blocos e {len(opcoes)} opções")
     print("opções:", opcoes)
 
 

@@ -40,7 +40,7 @@ Template do Body (endpoint de texto):
 {
   "contactId": "${contact.contactId}",
   "name": "${contact.name}",
-  "text": "${message.body}",
+  "text": { "body": "${message.body}" },
   "dcMessageId": "${message.id}"
 }
 ```
@@ -51,7 +51,7 @@ Template do Body (endpoint de texto):
 {
   "contactId": "${contact.contactId}",
   "name": "${contact.name}",
-  "text": "${message.body}",
+  "text": { "body": "${message.body}" },
   "dcMessageId": "${message.id}",
   "attachmentUrl": "${attachment.url}",
   "mimeType": "${attachment.mimeType}",
@@ -65,7 +65,7 @@ Template do Body (endpoint de texto):
 |---|---|
 | Habilitar recebimento | ligado |
 | Caminho do ID do Contato | `contact.id` |
-| Caminho do Corpo da Mensagem | `text` |
+| Caminho do Corpo da Mensagem | `text.body` |
 | Caminho do ID da Mensagem | `message_id` |
 | Caminho do Nome do Contato | `contact.name` |
 | Caminho do Timestamp | `timestamp` |
@@ -105,38 +105,43 @@ curl -s -X POST https://webchat.engrenatec.com.br/admin/faculdades \
     "instance_id": "<id da instância>",
     "webhook_url": "<URL do Webhook>",
     "webhook_secret": "<SEGREDO_HMAC>",
-    "api_key": "<API_KEY>"
+    "api_key": "<API_KEY>",
+    "texto_estruturado": true
   }'
 ```
 
 O mesmo comando atualiza uma faculdade já cadastrada. Para desativar, mande `"ativo": false`.
+Em uma conexão existente, alinhe primeiro o mapeamento e as condições para
+`text.body` e então habilite `texto_estruturado`. Consulte a [ADR 008](decisions/008-payload-text-body.md).
 
 ## 5. Automações do webchat (setores e encerramento)
 
-Na Conexão Universal o DataCrazy não envia botões nem espera o clique, então o fluxo do WhatsApp é convertido num **roteador** ([ADR 004](decisions/004-atendimentos-encerramento-atendente-setores.md)). Exporte no painel o fluxo do WhatsApp da faculdade **com todas as automações** (boas-vindas, menus de setor e subfluxos) e gere:
+Na Conexão Universal os metadados dos botões não chegam, mas a sessão nativa retoma pelo rótulo. Usar a adaptação da [ADR 007](decisions/007-boas-vindas-nativo-menus-por-atendimento.md), homologada na Iguaçu. A entrada de outra faculdade precisa de revisão: o gerador identifica pontos específicos da Iguaçu para excluir coleta de identidade. Exporte no painel o fluxo do WhatsApp da faculdade **com todas as automações** (boas-vindas, menus de setor e subfluxos) e gere:
 
 ```bash
 WEBCHAT_API_KEY=<API_KEY> python3 -I datacrazy/gerar_automacoes_webchat.py \
   --export <export do fluxo.json> --slug <slug> \
   --instancia <id da instância> --faculdade "<Nome da Faculdade>" \
-  --tag-teste 507ad07e-130c-4aa9-908e-64eba143a0d6
+  --tag-teste 507ad07e-130c-4aa9-908e-64eba143a0d6 --modo nativo
 ```
 
-O arquivo sai em `datacrazy/gerado/webchat-<slug>.json` (fora do git, porque leva a `API_KEY`), com duas automações importadas **desativadas**:
+O arquivo sai em `datacrazy/gerado/webchat-<slug>-nativo.json` (fora do git, porque leva a `API_KEY`), com duas automações importadas **desativadas**:
 
-- **Webchat <faculdade>: roteador:** saudação, menu de setores, menus e subfluxos. Não editar no painel: mudou o fluxo do WhatsApp, exporte e gere de novo (apague o roteador antigo antes de importar o novo).
+- **Webchat <faculdade>: boas-vindas:** saudação, menus e subfluxos nativos. Todos os menus têm um controle interno para encerrar a espera; o callback de reconhecimento leva a mesma chave. Mudou o WhatsApp, exporte e gere de novo. Desative e preserve o fluxo anterior para reversão.
 - **Webchat <faculdade>: atendimento finalizado:** confira se o header `X-Api-Key` do bloco HTTP tem a `API_KEY` (se o painel não gravar, **colar à mão**).
 
-Ative as duas. A tag "Teste Webchat" no lead de teste pula a checagem de horário.
+Cadastre `"fluxo_nativo": true` e `"texto_estruturado": true` na configuração da faculdade, com a conexão mapeada para `text.body`. Ative um único boas-vindas e uma única automação de finalização. Para atualizar apenas a entrada, use `--somente-entrada`; não duplique o evento de encerramento. A tag "Teste Webchat" no lead de teste pula a checagem de horário.
 
 ## 6. Testar
 
-Para testar o roteador como aluno: `cd app && node scripts/conversa.mjs "Olá" "Secretaria" "Declarações"` (aluno de teste, só na Iguaçu; para outra faculdade, ajuste o rodapé no script).
+Para testar o fluxo como aluno: `cd app && node scripts/conversa.mjs "Olá" "!escolher:Secretaria" "!escolher:Declarações"` (aluno de teste, só na Iguaçu; para outra faculdade, ajuste o rodapé no script).
 
 1. Abra `https://webchat.engrenatec.com.br/chat`, escolha a faculdade e mande uma mensagem com um CPF de teste válido (ex.: `529.982.247-25`).
 2. No DataCrazy, a conversa deve aparecer na instância nova. Se não aparecer, olhe a aba **Logs** da conexão: o webhook responde 200 mesmo quando rejeita.
 3. Responda pelo painel, com texto e com um arquivo, e veja a resposta chegar no chat. O cabeçalho do widget deve mostrar "<seu nome> está te atendendo" (até 1 min depois).
 4. Finalize o atendimento no painel: o widget mostra "Atendimento encerrado". Abra outro e encerre pelo botão do widget: a conversa fica finalizada no DataCrazy, com uma anotação interna.
-5. `GET /admin/status` não deve ter erros novos.
+5. Encerre com um menu aberto e novamente após uma resposta com espera por texto. A próxima primeira mensagem deve receber a saudação; a fila só libera o envio depois do reconhecimento da sessão anterior.
+6. Assuma como humano: escolhas posteriores não devem disparar o robô.
+7. `GET /admin/status` não deve ter erros novos.
 
 Depois do teste, apague o lead de teste no DataCrazy, se tiver sido criado um.

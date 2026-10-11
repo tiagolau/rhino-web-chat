@@ -146,10 +146,10 @@ Contexto: [ADR 004](decisions/004-atendimentos-encerramento-atendente-setores.md
 ## Automações na Conexão Universal (validado em 2026-10-10)
 
 - **Botões não são enviados.** Uma mensagem de automação com botões chega ao endpoint de envio só com o texto. O DataCrazy guarda os botões na mensagem (`buttons: [{name}]` na REST), mas não os passa pela conexão.
-- **A automação não espera o clique.** A mensagem com botões não segura a sessão: a resposta do aluno (mesmo digitando o texto exato do botão) **dispara o gatilho de novo** em vez de seguir pelo botão.
+- **Correção na ADR 007:** a sessão nativa espera e retoma pelo rótulo exato. O ensaio anterior sofreu interferência de outro menu ativo. Manter apenas um fluxo de entrada. `/finish` e desativar/ativar automações não cancelam a espera; usar o protocolo de encerramento da ADR 007.
 - **O gatilho `message-received` com `only-if-finished-service` dispara a cada mensagem do aluno**, inclusive **depois que um atendente assume** a conversa. Quem decide se o robô fala é a própria automação (no webchat, pelo campo `com_atendente` que o backend manda).
-- **Payload do gatilho:** com `receiveJson: true`, o datasource tem **o nosso JSON cru** do webhook: `[Message-1]text`, `[Message-1]novo_atendimento` etc. (`[Message-1]text.body`, que vale na Cloud API, vem vazio).
-- `field-is-equal-condition` com `parameter: "[Message-1]text"` funciona como roteador (um bloco de condição com várias condições, cada uma com o seu `nextBlockId`, e `falseNextBlockId` para nenhuma).
+- **Payload do gatilho:** com `receiveJson: true`, o datasource tem **o nosso JSON cru** do webhook. Antes da ADR 008, `text` era string e `text.body` vinha vazio. Com `faculdades.texto_estruturado=true`, o webhook envia `text: {body: "..."}` e o campo passa a ser `[Message-1]text.body`; `novo_atendimento` e os demais campos continuam na raiz. O mapeamento de recebimento da conexão precisa usar `text.body`.
+- `field-is-equal-condition` funciona como roteador (um bloco de condição com várias condições, cada uma com o seu `nextBlockId`, e `falseNextBlockId` para nenhuma). O caminho do parâmetro deve corresponder ao contrato habilitado na faculdade.
 - **`thread-finished-trigger`** com a instância do webchat dispara quando o atendente finaliza, quando uma automação executa `finish-conversation-action` e quando o webchat chama o `/finish` (o eco chega em ~0,2 s). No bloco HTTP dele, `${conversationId}` e `${leadId}` chegam preenchidos.
 - `change-conversation-department-action`, `add-tag-action`, `lead-has-tag-condition`, `lead-exists-condition`, `{Primeiro nome do lead|leadFirstName}` e `send-file-message` (vai pelo Endpoint Adicional "Anexos") funcionam normalmente.
 

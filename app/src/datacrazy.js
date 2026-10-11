@@ -4,6 +4,7 @@
 
 import { createHmac } from "node:crypto";
 import { config } from "./config.js";
+import { montarPayloadWebhook } from "./payload.js";
 
 // O Cloudflare na frente do DataCrazy barra User-Agents de biblioteca.
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36";
@@ -11,18 +12,7 @@ const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
 // ---------------------------------------------------------------- webhook ---
 
 export async function enviarAoWebhook(faculdade, aluno, mensagem) {
-  const payload = {
-    message_id: mensagem.id,
-    contact: { id: aluno.contact_id, name: aluno.nome },
-    // Mensagem só com anexo precisa de corpo; o nome do arquivo serve.
-    text: mensagem.texto || mensagem.anexo_nome || "",
-    timestamp: Math.floor(new Date(mensagem.created_at).getTime() / 1000),
-    fromMe: false,
-    // Lido pela automação como [Message-1]novo_atendimento.
-    novo_atendimento: mensagem.primeira ? "sim" : "nao",
-    com_atendente: mensagem.atendente ? "sim" : "nao",
-  };
-  if (mensagem.anexo_url) payload.media = { url: mensagem.anexo_url, type: mensagem.anexo_tipo };
+  const payload = montarPayloadWebhook(aluno, mensagem, faculdade.texto_estruturado);
 
   const corpo = JSON.stringify(payload);
   const assinatura = createHmac("sha256", faculdade.webhook_secret).update(corpo).digest("hex");
