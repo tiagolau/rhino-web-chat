@@ -9,3 +9,4 @@ app/data/
 
 # automações geradas com a api_key da faculdade
 datacrazy/gerado/
+__pycache__/

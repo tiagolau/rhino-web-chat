@@ -2,7 +2,7 @@
  * Rhino Webchat — widget de suporte do portal Eduno.
  *
  * Modo portal: incluído na área do aluno, lê window.eduno.aluno e o rodapé.
- *   <script src="https://webchat.engrenatec.com.br/widget.js" defer></script>
+ *   <script src="https://webchat.exemplo.com.br/widget.js" defer></script>
  * Modo página: usado em /chat, pede os dados num formulário.
  *   <script src="/widget.js" data-modo="pagina" defer></script>
  *

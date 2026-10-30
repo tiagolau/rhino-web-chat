@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Webchat do portal Eduno ligado ao DataCrazy pela Conexão Universal",
+  "license": "MIT",
   "type": "module",
   "main": "src/server.js",
   "engines": {

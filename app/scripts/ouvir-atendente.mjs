@@ -1,7 +1,7 @@
 // Abre a sessão do aluno de teste e fica ouvindo respostas do atendente pelo WebSocket.
 // Uso: node scripts/ouvir-atendente.mjs [URL_BASE] [segundos]
 
-const BASE = (process.argv[2] || "https://webchat.engrenatec.com.br").replace(/\/$/, "");
+const BASE = (process.argv[2] || "http://localhost:3000").replace(/\/$/, "");
 const SEGUNDOS = Number(process.argv[3] || 90);
 
 const res = await fetch(`${BASE}/api/sessao`, {

@@ -4,6 +4,8 @@
 **Estado:** Tiago adicionou o gatilho do webchat e ativou o original; contrato de transporte corrigido pela ADR 010. A homologação completa das esperas/reinício do original continua pendente.
 **Decisões:** [ADR 010](decisions/010-transporte-original-sem-ack-e-recuperacao-da-fila.md) (original em produção) e ADRs 007–009 (preparação do backend).
 
+> **Nota (2026-10-30):** com a doação do projeto ([ADR 013](decisions/013-doacao-codigo-rj-global.md)), onde este documento diz que só o Tiago altera ou ativa o boas-vindas original, leia "a equipe responsável pelas automações do DataCrazy na RJ Global". A regra de fundo continua valendo: scripts e agentes não mexem nas automações compartilhadas com o WhatsApp. As URLs `webchat.engrenatec.com.br` são da produção de transição.
+
 ## Homologação operacional — 2026-10-10
 
 O ciclo foi repetido na conexão de teste com o aluno fictício já previsto no

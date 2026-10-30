@@ -18,10 +18,10 @@ test("cpfValido aceita CPF correto e recusa errados", () => {
 });
 
 test("chaveTelefone ignora o 9º dígito e o 55", () => {
-  assert.equal(id.chaveTelefone("(31) 98113-3019"), "3181133019");
-  assert.equal(id.chaveTelefone("553181133019"), "3181133019");
-  assert.equal(id.chaveTelefone("5531981133019"), "3181133019");
-  assert.notEqual(id.chaveTelefone("5521981133019"), id.chaveTelefone("5531981133019"));
+  assert.equal(id.chaveTelefone("(31) 90000-0001"), "3100000001");
+  assert.equal(id.chaveTelefone("553100000001"), "3100000001");
+  assert.equal(id.chaveTelefone("5531900000001"), "3100000001");
+  assert.notEqual(id.chaveTelefone("5521900000001"), id.chaveTelefone("5531900000001"));
   assert.equal(id.chaveTelefone("123"), null);
 });
 

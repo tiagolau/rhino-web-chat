@@ -6,7 +6,7 @@
 //   "!escolher:Secretaria" seleciona a opção do menu ativo com os IDs do servidor.
 
 const args = process.argv.slice(2);
-const BASE = (args[0]?.startsWith("http") ? args.shift() : "https://webchat.engrenatec.com.br").replace(/\/$/, "");
+const BASE = (args[0]?.startsWith("http") ? args.shift() : "http://localhost:3000").replace(/\/$/, "");
 const ESPERA_MS = Number(process.env.ESPERA_MS || 12000);
 
 const aluno = { id: "999100", nome: "ALUNO TESTE WEBCHAT", cpf: "529.982.247-25", email: "aluno.teste.webchat@example.com", celular: "(31) 90000-0001" };

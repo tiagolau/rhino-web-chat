@@ -4,6 +4,8 @@ Cada faculdade tem a **sua própria Conexão Universal** no DataCrazy (tenant RJ
 
 Tempo estimado: 15 minutos por faculdade.
 
+Os comandos abaixo usam `$PUBLIC_URL`, `$DATACRAZY_API_TOKEN` e a `ADMIN_API_KEY` do ambiente de produção. Para carregá-los no terminal: `set -a; . app/deploy/.env.production; set +a`.
+
 ## 1. Gerar os segredos
 
 Gere dois valores, um para cada direção:
@@ -25,7 +27,7 @@ Painel `https://crm.datacrazy.io` → Configurações → Integrações → Cone
 
 | Campo | Valor |
 |---|---|
-| URL Base | `https://webchat.engrenatec.com.br` |
+| URL Base | a `PUBLIC_URL` do backend, ex.: `https://webchat.exemplo.com.br` |
 | Método | `POST` |
 | Caminho | `/dc/<slug>/send` |
 | Content-Type | `application/json` |
@@ -86,7 +88,7 @@ Clique em **Finalizar** e copie a **URL do Webhook** que aparece.
 
 ```bash
 curl -s https://api.g1.datacrazy.io/api/v1/instances \
-  -H "Authorization: Bearer $DATACRAZY_API_KEY_RJGLOBAL" -H "User-Agent: Mozilla/5.0" \
+  -H "Authorization: Bearer $DATACRAZY_API_TOKEN" -H "User-Agent: Mozilla/5.0" \
   | python3 -c "import json,sys; [print(i['id'], i['name']) for i in json.load(sys.stdin)['data'] if i.get('platform')=='UNIVERSAL']"
 ```
 
@@ -95,8 +97,8 @@ Confira também se o segredo foi gravado: no mesmo JSON, `config.receive.validat
 ## 4. Cadastrar no backend
 
 ```bash
-curl -s -X POST https://webchat.engrenatec.com.br/admin/faculdades \
-  -H "X-Admin-Key: <ADMIN_API_KEY de app/deploy/.env.production>" \
+curl -s -X POST $PUBLIC_URL/admin/faculdades \
+  -H "X-Admin-Key: $ADMIN_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "slug": "<slug>",
@@ -122,7 +124,8 @@ Na Conexão Universal os metadados dos botões não chegam, mas a sessão nativa
 WEBCHAT_API_KEY=<API_KEY> python3 -I datacrazy/gerar_automacoes_webchat.py \
   --export <export do fluxo.json> --slug <slug> \
   --instancia <id da instância> --faculdade "<Nome da Faculdade>" \
-  --tag-teste 507ad07e-130c-4aa9-908e-64eba143a0d6 --modo nativo
+  --tag-teste 507ad07e-130c-4aa9-908e-64eba143a0d6 --modo nativo \
+  --url $PUBLIC_URL
 ```
 
 O arquivo sai em `datacrazy/gerado/webchat-<slug>-nativo.json` (fora do git, porque leva a `API_KEY`), com duas automações importadas **desativadas**:
@@ -134,9 +137,9 @@ Cadastre `"fluxo_nativo": true` e `"texto_estruturado": true` na configuração 
 
 ## 6. Testar
 
-Para testar o fluxo como aluno: `cd app && node scripts/conversa.mjs "Olá" "!escolher:Secretaria" "!escolher:Declarações"` (aluno de teste, só na Iguaçu; para outra faculdade, ajuste o rodapé no script).
+Para testar o fluxo como aluno: `cd app && node scripts/conversa.mjs $PUBLIC_URL "Olá" "!escolher:Secretaria" "!escolher:Declarações"` (aluno de teste, só na Iguaçu; para outra faculdade, ajuste o rodapé no script).
 
-1. Abra `https://webchat.engrenatec.com.br/chat`, escolha a faculdade e mande uma mensagem com um CPF de teste válido (ex.: `529.982.247-25`).
+1. Abra `<PUBLIC_URL>/chat`, escolha a faculdade e mande uma mensagem com um CPF de teste válido (ex.: `529.982.247-25`).
 2. No DataCrazy, a conversa deve aparecer na instância nova. Se não aparecer, olhe a aba **Logs** da conexão: o webhook responde 200 mesmo quando rejeita.
 3. Responda pelo painel, com texto e com um arquivo, e veja a resposta chegar no chat. O cabeçalho do widget deve mostrar "<seu nome> está te atendendo" (até 1 min depois).
 4. Finalize o atendimento no painel: o widget mostra "Atendimento encerrado". Abra outro e encerre pelo botão do widget: a conversa fica finalizada no DataCrazy, com uma anotação interna.

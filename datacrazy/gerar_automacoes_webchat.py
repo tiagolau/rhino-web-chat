@@ -18,7 +18,8 @@ Uso (a chave é o `api_key` da faculdade no backend, a mesma credencial da conex
     WEBCHAT_API_KEY=... python3 -I datacrazy/gerar_automacoes_webchat.py \\
         --export ~/Downloads/boas-vindas-iguaçu.json --slug iguacu \\
         --instancia 6aca6a619ab27fb81a32e33e --faculdade "Faculdade Iguaçu" \\
-        --tag-teste 507ad07e-130c-4aa9-908e-64eba143a0d6
+        --tag-teste 507ad07e-130c-4aa9-908e-64eba143a0d6 \\
+        --url https://webchat.exemplo.com.br
 
 O arquivo sai em datacrazy/gerado/ (fora do git, porque leva a chave). Quando o
 fluxo do WhatsApp mudar, exporte de novo e gere outra vez.
@@ -33,7 +34,6 @@ import uuid
 from collections import deque
 from pathlib import Path
 
-URL_PADRAO = "https://webchat.engrenatec.com.br"
 TAG_ALUNO = "Eduno"
 MARCA_OPCAO = "▸ "  # o widget transforma estas linhas em botões (public/widget.js)
 MENU_INICIAL = "Menu inicial"
@@ -420,10 +420,11 @@ def main():
     p.add_argument("--instancia", required=True, help="id da Conexão Universal do webchat")
     p.add_argument("--faculdade", required=True, help='nome exibido, ex.: "Faculdade Iguaçu"')
     p.add_argument("--tag-teste", default="", help="id da tag que pula a checagem de horário (lead de teste)")
-    p.add_argument("--url", default=URL_PADRAO)
+    p.add_argument("--url", required=True, help="PUBLIC_URL do backend, ex.: https://webchat.exemplo.com.br")
     p.add_argument("--modo", choices=["roteador", "nativo"], default="roteador")
     p.add_argument("--somente-entrada", action="store_true", help="não duplica a automação de encerramento já existente")
     a = p.parse_args()
+    a.url = a.url.rstrip("/")
     chave = os.environ.get("WEBCHAT_API_KEY")
     if not chave and (not a.somente_entrada or a.modo == "nativo"):
         raise SystemExit("defina WEBCHAT_API_KEY (api_key da faculdade no backend)")

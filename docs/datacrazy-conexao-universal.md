@@ -155,7 +155,7 @@ Contexto: [ADR 004](decisions/004-atendimentos-encerramento-atendente-setores.md
 
 ## Upload para o armazenamento do CRM (validado em 2026-10-10)
 
-O upload do painel foi identificado no código JavaScript servido pelo CRM e testado com a mesma `DATACRAZY_API_KEY_RJGLOBAL` usada pelo backend, sem token de sessão do navegador. Isso complementa a ADR 003: a Conexão Universal continua guardando apenas URLs, mas existe uma rota interna separada capaz de hospedar o conteúdo no DataCrazy.
+O upload do painel foi identificado no código JavaScript servido pelo CRM e testado com a mesma chave REST (`DATACRAZY_API_TOKEN`) usada pelo backend, sem token de sessão do navegador. Isso complementa a ADR 003: a Conexão Universal continua guardando apenas URLs, mas existe uma rota interna separada capaz de hospedar o conteúdo no DataCrazy.
 
 1. `POST https://crm.g1.datacrazy.io/api/crm/files/upload/file/lead-attachments?sourceId=<leadId>` com `Authorization: Bearer <chave da API>`, User-Agent de navegador e multipart/form-data, campo `file`.
 2. Resposta HTTP 201: `{ "url": "https://g1cdn1.datacrazy.io/<tenant>/lead-attachments/<id>" }`.
